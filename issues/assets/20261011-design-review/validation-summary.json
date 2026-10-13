@@ -1,0 +1,21 @@
+{
+  "jsonBlocks": 4,
+  "typescriptBlocks": 3,
+  "imageHashes": 3,
+  "localLinksAndAnchors": 21,
+  "sqlTables": 16,
+  "sqlConstraintChecks": 12,
+  "dialogueUnchanged": true,
+  "sampleFlagsAndBlockersPreserved": true,
+  "typescriptStrictCheck": {
+    "options": [
+      "--strict",
+      "--noEmit",
+      "--target",
+      "ES2020"
+    ],
+    "passed": true,
+    "compiler": "5.9.3"
+  },
+  "designSha256": "afd82ae368cc388bf4358189cb8b370cc86b2e6cbeb58b8c600e3cd722c882e1"
+}
