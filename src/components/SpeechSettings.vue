@@ -17,8 +17,7 @@ const apiKey = ref(""),
   busy = ref(false),
   message = ref(""),
   error = ref(""),
-  confirmReset = ref(false),
-  confirmCourseReset = ref(false);
+  confirmReset = ref(false);
 const voices = computed(() => speechVoices[form.protocol]);
 watch(
   () => form.protocol,
@@ -94,15 +93,6 @@ async function save(test = false) {
     } else message.value = "朗读设置已保存。";
   });
 }
-async function generateCourse() {
-  await perform(async () => {
-    await persist();
-    const completed = await props.speech.generateCourse();
-    message.value = completed
-      ? "整课音频已保存为课程资源，可以反复离线学习。"
-      : "生成已暂停，已完成部分保留，下次可以继续。";
-  });
-}
 onBeforeUnmount(() => {
   apiKey.value = "";
 });
@@ -112,8 +102,10 @@ onBeforeUnmount(() => {
   <section class="speech-settings" aria-labelledby="speech-title">
     <div class="section-heading">
       <div>
-        <h3 id="speech-title">课文朗读</h3>
-        <p>已保存的课程音频可长期离线播放。选择新音色后，先试听再生成整课。</p>
+        <h3 id="speech-title">语音模型与朗读配置</h3>
+        <p>
+          在此保存模型、音色和语速；每门课程的音频在家长空间的课程管理中准备。
+        </p>
       </div>
       <Icon name="volume" :size="23" />
     </div>
@@ -286,100 +278,6 @@ onBeforeUnmount(() => {
       {{ error }}
     </p>
     <div v-if="speech.supported" class="speech-cache">
-      <section class="course-audio-panel" aria-labelledby="course-audio-title">
-        <h4 id="course-audio-title">本课音频资源 · {{ speech.courseTitle }}</h4>
-        <p v-if="speech.courseReady">
-          {{ speech.courseAudio.ready }} /
-          {{ speech.courseAudio.total }} 段已就绪 ·
-          {{ (speech.courseAudio.bytes / 1024 / 1024).toFixed(1) }} MB<span
-            v-if="speech.courseAudio.voice"
-          >
-            · {{ speech.courseAudio.voice }}</span
-          >
-        </p>
-        <p v-else>{{ speech.courseError || "正在检查课程音频…" }}</p>
-        <p class="field-help">
-          随课程长期保存，清理试听缓存、移除 Key 或切换学习档案都不会删除。APK
-          不预装音频，请先配置服务，再生成整课。
-        </p>
-        <p
-          v-if="speech.courseReady && speech.courseAudio.ready === 0"
-          class="inline-note"
-        >
-          本课尚未生成音频。填写 API 和音色后，点击“生成 / 继续整课音频”。
-        </p>
-        <p v-if="speech.courseAudio.pending" class="inline-note">
-          新音色 {{ speech.courseAudio.pending.voice }}：{{
-            speech.courseAudio.pending.ready
-          }}
-          /
-          {{ speech.courseAudio.pending.total }} 段。完成前继续使用原课程音频。
-        </p>
-        <div v-if="speech.courseGenerating" role="status">
-          <p>
-            正在生成课程音频 {{ speech.courseProgress.completed }} /
-            {{ speech.courseProgress.total }}
-          </p>
-          <progress
-            :value="speech.courseProgress.completed"
-            :max="speech.courseProgress.total"
-          /><button
-            class="button secondary compact"
-            type="button"
-            @click="speech.cancelCourse"
-          >
-            暂停生成
-          </button>
-        </div>
-        <template v-else>
-          <button
-            class="button primary compact"
-            type="button"
-            :disabled="
-              busy || !speech.ready || !speech.courseReady || form.mode !== 'ai'
-            "
-            @click="generateCourse"
-          >
-            {{
-              speech.courseAudio.complete
-                ? "生成所选音色的整课音频"
-                : "生成 / 继续整课音频"
-            }}
-          </button>
-          <p class="field-help">
-            按当前填写的设置保存并生成；仅请求缺失音频，失败或暂停后可继续。学习时不自动调用
-            API。
-          </p>
-          <button
-            class="text-button"
-            type="button"
-            :disabled="busy"
-            @click="confirmCourseReset = !confirmCourseReset"
-          >
-            删除本课音频
-          </button>
-        </template>
-        <div v-if="confirmCourseReset" class="inline-note">
-          <p>
-            删除本课所有已生成的音色版本。再次使用 AI 音频需要重新生成；API
-            配置和学习记录保留。
-          </p>
-          <button
-            class="button secondary compact"
-            type="button"
-            :disabled="busy || speech.courseGenerating"
-            @click="
-              perform(async () => {
-                await speech.clearCourse();
-                confirmCourseReset = false;
-                message = '本课音频已删除，可以重新测试生成。';
-              })
-            "
-          >
-            确认删除本课音频
-          </button>
-        </div>
-      </section>
       <p>
         试听缓存：{{ speech.cache.count }} 段 ·
         {{ (speech.cache.bytes / 1024 / 1024).toFixed(1) }} MB

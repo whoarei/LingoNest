@@ -45,7 +45,17 @@ export interface LingoNativeAPI {
   cancelRecording(): Promise<void>;
   playRecording(options: { path: string }): Promise<void>;
   deleteRecordings(options: { learnerId: string }): Promise<void>;
+  deleteCourseResources(options: {
+    course?: CourseAudioSpec;
+    images: string[];
+    recordings: string[];
+  }): Promise<void>;
+  exitApp(): Promise<void>;
   stopAudio(): Promise<void>;
+  addListener(
+    name: "backButton",
+    callback: () => void,
+  ): Promise<PluginListenerHandle>;
   addListener(
     name: "recordingStopped",
     callback: (event: { reason: string; learnerId?: string }) => void,

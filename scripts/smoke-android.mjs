@@ -119,13 +119,15 @@ try {
   await click('保存进度并退出');
   await until(`!document.querySelector('.busy-indicator')`);
   await evaluate(`document.querySelector('[aria-label="切换到家长空间"]').click()`);
+  await until(`!!document.querySelector('.parent-child-button')`);
+  await evaluate(`document.querySelector('.parent-child-button').click()`);
+  await click('删除档案');
   await until(`!!document.querySelector('#parent-answer')`);
   await evaluate(`(()=>{const e=document.querySelector('#parent-answer');e.value='12';e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-  await click('进入家长空间');
-  await click('删除档案');
+  await click('确认并继续');
   await evaluate(`(()=>{const e=document.querySelector('#delete-name');e.value='体验小树';e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click('确认删除');
-  await until(`!!document.querySelector('#first-nickname') && !document.querySelector('.busy-indicator')`);
+  await until(`!!document.querySelector('#parent-nickname') && !document.querySelector('.busy-indicator')`);
   const clean = await evaluate(`Capacitor.Plugins.LingoNative.loadState().then(s=>JSON.parse(s.payload))`);
   assert.equal(clean.learners.length, 0);
   assert.equal(clean.events.length, 0);

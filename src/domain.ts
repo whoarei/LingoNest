@@ -1,11 +1,13 @@
 import type { Ref, ComputedRef } from "vue";
 import type { SpeechController } from "./useSpeech";
+import type { CourseRecord, SourceImage } from "./course-library";
 import type {
   Exercise,
   StageId,
   EvaluatedAttempt,
   SkillState,
   GradeResult,
+  LearningEvent,
 } from "../packages/learning-engine/src/model";
 export interface Learner {
   id: string;
@@ -57,7 +59,18 @@ export interface LearningUI {
   >;
   learners: Ref<Learner[]>;
   learner: ComputedRef<Learner | null>;
-  course: Course;
+  course: ComputedRef<Course>;
+  courses: ComputedRef<CourseRecord[]>;
+  deletedCourses: ComputedRef<CourseRecord[]>;
+  exercises: ComputedRef<Exercise[]>;
+  sourceImages: ComputedRef<SourceImage[]>;
+  saveCourse(record: CourseRecord): Promise<boolean>;
+  assignCourse(id: string): Promise<boolean>;
+  deleteCourse(id: string): Promise<boolean>;
+  restoreCourse(id: string): Promise<boolean>;
+  purgeCourse(id: string): Promise<boolean>;
+  retryCourseCleanup(): Promise<void>;
+  pendingCourseCleanupCount: ComputedRef<number>;
   confirmed: ComputedRef<boolean>;
   stages: ComputedRef<StageView[]>;
   currentExercise: ComputedRef<Exercise | null>;
@@ -83,9 +96,11 @@ export interface LearningUI {
   }>;
   history: ComputedRef<HistoryItem[]>;
   pending: ComputedRef<HistoryItem[]>;
+  reviewLog: ComputedRef<Extract<LearningEvent, { type: "review" }>[]>;
   skills: ComputedRef<SkillState[]>;
   storageLabel: string;
   addLearner(name: string): Promise<void>;
+  renameLearner(name: string): Promise<void>;
   selectLearner(id: string): Promise<void>;
   confirmCourse(): Promise<void>;
   startStage(id: StageId): void;
@@ -98,8 +113,14 @@ export interface LearningUI {
   speak(text: string): Promise<void>;
   stopSpeech(): Promise<void>;
   toggleRecording(): Promise<void>;
-  playRecording(path: string): Promise<void>;
-  reviewAttempt(id: string, passed: boolean): Promise<void>;
+  playRecording(path: string): Promise<boolean>;
+  stopPlayback(): Promise<void>;
+  reviewAttempt(
+    id: string,
+    passed: boolean,
+    expectedRevision?: number,
+  ): Promise<void>;
+  refreshLearning(): void;
   deleteLearner(): Promise<void>;
   dismissError(): void;
 }

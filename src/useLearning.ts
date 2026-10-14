@@ -14,12 +14,13 @@ import type {
   GradeResult,
 } from "../packages/learning-engine/src/model";
 import type { LearningUI } from "./domain";
+import { stageDefinitions } from "./course";
 import {
-  course,
-  exercises,
-  stageDefinitions,
-  allExposureTargets,
-} from "./course";
+  starterRecord,
+  validateCourseRecord,
+  type CourseRecord,
+} from "./course-library";
+import { makeCourseAudioSpec } from "./course-speech";
 import {
   LocalRepository,
   emptyState,
@@ -28,6 +29,11 @@ import {
 } from "./storage";
 import { isAndroid, native } from "./native";
 import { useSpeech } from "./useSpeech";
+import {
+  archiveCourse,
+  restoreCourse as restoreArchivedCourse,
+  purgeCourse as purgeArchivedCourse,
+} from "./course-deletion";
 
 const makeId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -38,7 +44,6 @@ const localDate = (date: Date) =>
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function useLearning(): LearningUI {
-  const speech = useSpeech();
   const repository = new LocalRepository();
   const state = ref<LocalState>(emptyState());
   const ready = ref(false),
@@ -61,6 +66,7 @@ export function useLearning(): LearningUI {
   let submitInFlight = false;
   let nextInFlight = false;
   let pendingWrites = 0;
+  let playbackSequence = 0;
   const startWall = Date.now(),
     startMonotonic = performance.now();
   function clockSuspect(now: number) {
@@ -77,15 +83,49 @@ export function useLearning(): LearningUI {
       state.value.learners.find((l) => l.id === state.value.activeLearnerId) ??
       null,
   );
+  const courses = computed(() => [
+    starterRecord,
+    ...state.value.courses.filter((record) => !record.deletedAt),
+  ]);
+  const deletedCourses = computed(() =>
+    state.value.courses
+      .filter((record) => record.deletedAt)
+      .slice()
+      .sort((a, b) => b.deletedAt!.localeCompare(a.deletedAt!)),
+  );
+  const activeRecord = computed(
+    () =>
+      courses.value.find(
+        (record) =>
+          record.id === state.value.learningCourseIds[learner.value?.id ?? ""],
+      ) ?? starterRecord,
+  );
+  const course = computed(() => activeRecord.value.package!.course);
+  const exercises = computed(() => activeRecord.value.package!.exercises);
+  const speech = useSpeech(
+    computed(() => makeCourseAudioSpec(course.value, exercises.value)),
+  );
+  const allExposureTargets = computed(() =>
+    exercises.value
+      .filter((exercise) =>
+        ["recall", "dictation"].includes(exercise.target.ability),
+      )
+      .map((exercise) => exercise.target),
+  );
   const confirmed = computed(
     () =>
       !!learner.value &&
-      state.value.confirmedLearnerIds.includes(learner.value.id),
+      state.value.confirmedCourses.some(
+        (item) =>
+          item.learnerId === learner.value!.id &&
+          item.courseId === course.value.id &&
+          item.version === course.value.version,
+      ),
   );
   const projection = computed(() =>
     projectLearning(
       state.value.events,
-      exercises,
+      exercises.value,
       learner.value?.id ?? "",
       tick.value,
     ),
@@ -94,7 +134,7 @@ export function useLearning(): LearningUI {
     projection.value.attempts
       .map((a) => ({
         ...a,
-        exercise: exercises.find((e) => e.id === a.exerciseId)!,
+        exercise: exercises.value.find((e) => e.id === a.exerciseId)!,
       }))
       .filter((a) => a.exercise)
       .reverse(),
@@ -110,15 +150,20 @@ export function useLearning(): LearningUI {
     );
     return buildReviewQueue(
       projection.value,
-      exercises.filter((e) => measured.has(cellKey(e.target))),
+      exercises.value.filter((e) => measured.has(cellKey(e.target))),
       tick.value,
     );
   });
   function stageResults(id: StageId) {
-    const items = exercises.filter((e) => e.stageId === id);
+    const items = exercises.value.filter((e) => e.stageId === id);
     const stageRun = [...state.value.runs]
       .reverse()
-      .find((r) => r.learnerId === learner.value?.id && r.stageId === id);
+      .find(
+        (r) =>
+          r.learnerId === learner.value?.id &&
+          r.stageId === id &&
+          r.courseId === course.value.id,
+      );
     const targets = [...new Set(items.map((e) => cellKey(e.target)))];
     const results = targets.map((key) =>
       history.value.find(
@@ -249,6 +294,8 @@ export function useLearning(): LearningUI {
     }
   }
   async function addLearner(name: string) {
+    const initialView = view.value;
+    error.value = "";
     const nickname = name.trim();
     if (!nickname || nickname.length > 16) {
       error.value = "请输入 1–16 个字的昵称。";
@@ -265,12 +312,31 @@ export function useLearning(): LearningUI {
         d.activeLearnerId = id;
       })
     )
-      view.value = "home";
+      if (initialView !== "parent" && view.value === initialView)
+        view.value = "home";
+  }
+  async function renameLearner(name: string) {
+    error.value = "";
+    const nickname = name.trim();
+    const id = learner.value?.id;
+    if (!id || !nickname || nickname.length > 16) {
+      error.value = "请输入 1–16 个字的昵称。";
+      return;
+    }
+    if (
+      await transaction((d) => {
+        const profile = d.learners.find((item) => item.id === id);
+        if (!profile) throw new Error("学习档案已变更，请重新选择。");
+        profile.nickname = nickname;
+      })
+    )
+      notice.value = "昵称已更新，学习记录保留。";
   }
   async function stopSpeech() {
     await operation(() => speech.stop());
   }
   async function clearRun() {
+    playbackSequence++;
     if (isAndroid)
       await operation(async () => {
         await native.cancelRecording();
@@ -282,6 +348,8 @@ export function useLearning(): LearningUI {
     resetAnswer();
   }
   async function selectLearner(id: string) {
+    const initialView = view.value;
+    if (id === learner.value?.id) return;
     if (!state.value.learners.some((l) => l.id === id)) return;
     await clearRun();
     if (
@@ -289,20 +357,183 @@ export function useLearning(): LearningUI {
         d.activeLearnerId = id;
       })
     )
-      view.value = "home";
+      if (initialView !== "parent" && view.value === initialView)
+        view.value = "home";
   }
   async function confirmCourse() {
     const id = learner.value?.id;
     if (!id) return;
     if (
       await transaction((d) => {
-        if (!d.confirmedLearnerIds.includes(id)) d.confirmedLearnerIds.push(id);
+        if (
+          !d.confirmedCourses.some(
+            (item) =>
+              item.learnerId === id &&
+              item.courseId === course.value.id &&
+              item.version === course.value.version,
+          )
+        )
+          d.confirmedCourses.push({
+            learnerId: id,
+            courseId: course.value.id,
+            version: course.value.version,
+          });
+        if (
+          course.value.id === starterRecord.id &&
+          !d.confirmedLearnerIds.includes(id)
+        )
+          d.confirmedLearnerIds.push(id);
       })
     )
       notice.value = "已确认本课原文，可以开始练习了。";
   }
+  async function saveCourse(record: CourseRecord): Promise<boolean> {
+    error.value = "";
+    const copy = JSON.parse(JSON.stringify(record)) as CourseRecord;
+    try {
+      validateCourseRecord(copy);
+    } catch (failure) {
+      error.value = errorText(failure);
+      return false;
+    }
+    return transaction((d) => {
+      if (
+        copy.deletedAt ||
+        d.courses.some((item) => item.id === copy.id && item.deletedAt) ||
+        d.pendingCourseDeletions.some((job) => job.record.id === copy.id)
+      )
+        throw new Error("课程已删除，不能重新保存旧草稿。");
+      const index = d.courses.findIndex((item) => item.id === copy.id);
+      if (index >= 0 && d.courses[index]!.status === "published") {
+        if (JSON.stringify(d.courses[index]) !== JSON.stringify(copy))
+          throw new Error("已启用课程保持原版本，请新建课程保存变更。");
+        return;
+      }
+      if (index < 0 && d.courses.filter((item) => !item.deletedAt).length >= 30)
+        throw new Error("此设备最多保存 30 门自建课程。");
+      if (index < 0 && d.courses.length >= 300)
+        throw new Error("本机课程保存数量已达上限。");
+      if (index < 0) d.courses.push(copy);
+      else d.courses[index] = copy;
+    });
+  }
+  async function assignCourse(id: string): Promise<boolean> {
+    error.value = "";
+    if (!learner.value) {
+      error.value = "请先创建孩子档案。";
+      return false;
+    }
+    if (view.value === "practice" || speech.courseGenerating.value) {
+      error.value = "请先退出练习或暂停音频生成，再切换课程。";
+      return false;
+    }
+    const record = courses.value.find(
+      (item) => item.id === id && item.status === "published",
+    );
+    if (!record) {
+      error.value = "课程尚未审核启用。";
+      return false;
+    }
+    const learnerId = learner.value.id;
+    await clearRun();
+    const saved = await transaction((d) => {
+      d.learningCourseIds[learnerId] = id;
+      if (
+        !d.confirmedCourses.some(
+          (item) => item.learnerId === learnerId && item.courseId === id,
+        )
+      )
+        d.confirmedCourses.push({
+          learnerId,
+          courseId: id,
+          version: record.package!.course.version,
+        });
+    });
+    if (saved) notice.value = "已设为当前孩子的学习课程，原课程进度保留。";
+    return saved;
+  }
   async function openLesson() {
-    if (await exposure(allExposureTargets)) view.value = "lesson";
+    if (await exposure(allExposureTargets.value)) view.value = "lesson";
+  }
+  async function deleteCourse(id: string): Promise<boolean> {
+    error.value = "";
+    if (view.value === "practice" || speech.courseGenerating.value) {
+      error.value = "请先退出练习或暂停音频生成，再删除课程。";
+      return false;
+    }
+    if (
+      !state.value.courses.some((item) => item.id === id && !item.deletedAt)
+    ) {
+      error.value = "只能删除自建课程，内置课程保留。";
+      return false;
+    }
+    await clearRun();
+    await speech.stop();
+    const saved = await transaction((d) => {
+      archiveCourse(d, id);
+    });
+    if (saved) {
+      notice.value = "课程已移到已删除，内容、音频与学习记录保留，可随时恢复。";
+    }
+    return saved;
+  }
+  async function restoreCourse(id: string): Promise<boolean> {
+    error.value = "";
+    const saved = await transaction((d) => restoreArchivedCourse(d, id));
+    if (saved) notice.value = "课程已恢复，原有学习进度和资源保留。";
+    return saved;
+  }
+  let cleaningCourses = false;
+  async function purgeCourse(id: string): Promise<boolean> {
+    error.value = "";
+    if (view.value === "practice" || speech.courseGenerating.value) {
+      error.value = "请先退出练习或暂停音频生成，再彻底删除课程。";
+      return false;
+    }
+    const saved = await transaction((d) => {
+      purgeArchivedCourse(d, id);
+    });
+    if (saved) {
+      notice.value = "课程及本课学习记录已彻底删除，无法恢复。";
+      await retryCourseCleanup();
+    }
+    return saved;
+  }
+  async function retryCourseCleanup() {
+    if (cleaningCourses) return;
+    if (error.value.includes("本机资源清理")) error.value = "";
+    cleaningCourses = true;
+    try {
+      for (const job of [...state.value.pendingCourseDeletions]) {
+        try {
+          if (isAndroid)
+            await native.deleteCourseResources({
+              ...(job.record.package
+                ? {
+                    course: makeCourseAudioSpec(
+                      job.record.package.course,
+                      job.record.package.exercises,
+                    ),
+                  }
+                : {}),
+              images: job.images,
+              recordings: job.recordings,
+            });
+          if (
+            !(await transaction((d) => {
+              d.pendingCourseDeletions = d.pendingCourseDeletions.filter(
+                (item) => item.record.id !== job.record.id,
+              );
+            }))
+          )
+            break;
+        } catch (failure) {
+          error.value = `课程已删除，本机资源清理未完成，可重试或下次启动自动处理：${errorText(failure)}`;
+        }
+      }
+    } finally {
+      cleaningCourses = false;
+    }
   }
   function resetAnswer() {
     answer.value = "";
@@ -330,11 +561,13 @@ export function useLearning(): LearningUI {
         (r) =>
           r.learnerId === learner.value?.id &&
           r.stageId === stageId &&
+          r.courseId === course.value.id &&
           r.index < r.exerciseIds.length,
       );
     const stored: PracticeRun = previous ?? {
       id: makeId(),
       learnerId: learner.value.id,
+      courseId: course.value.id,
       stageId,
       exerciseIds: items.map((e) => e.id),
       index: 0,
@@ -344,7 +577,7 @@ export function useLearning(): LearningUI {
       selectedIds: [],
       recordingPath: null,
     };
-    const first = exercises.find(
+    const first = exercises.value.find(
       (e) => e.id === stored.exerciseIds[stored.index],
     );
     if (
@@ -362,7 +595,7 @@ export function useLearning(): LearningUI {
     )
       return;
     run.value = stored.exerciseIds.map(
-      (id) => exercises.find((e) => e.id === id)!,
+      (id) => exercises.value.find((e) => e.id === id)!,
     );
     index.value = stored.index;
     sessionId = stored.id;
@@ -385,7 +618,7 @@ export function useLearning(): LearningUI {
       return;
     }
     void begin(
-      exercises.filter((e) => e.stageId === id),
+      exercises.value.filter((e) => e.stageId === id),
       stageDefinitions.find((s) => s.id === id)?.title ?? "练习",
       id,
     );
@@ -593,19 +826,56 @@ export function useLearning(): LearningUI {
     if (wasRecording) recording.value = false;
     busy.value = false;
   }
-  async function playRecording(path: string) {
-    await operation(async () => {
+  async function playRecording(path: string): Promise<boolean> {
+    error.value = "";
+    const learnerId = learner.value?.id;
+    const sequence = ++playbackSequence;
+    try {
       if (!isAndroid)
         throw new Error("录音存放在 Android 设备中，请在原设备播放。");
       if (recording.value) throw new Error("请先结束当前录音。");
       await native.playRecording({ path });
-    });
+      return sequence === playbackSequence && learner.value?.id === learnerId;
+    } catch (failure) {
+      if (sequence === playbackSequence && learner.value?.id === learnerId)
+        error.value = errorText(failure);
+      return false;
+    }
   }
-  async function reviewAttempt(id: string, passed: boolean) {
-    const item = pending.value.find((a) => a.id === id);
+  async function stopPlayback() {
+    playbackSequence++;
+    if (isAndroid) {
+      try {
+        await native.stopAudio();
+      } catch (failure) {
+        error.value = errorText(failure);
+      }
+    }
+  }
+  async function reviewAttempt(
+    id: string,
+    passed: boolean,
+    expectedRevision?: number,
+  ) {
+    error.value = "";
+    const item = history.value.find((a) => a.id === id);
     if (!item || busy.value) return;
+    if (item.exercise.kind !== "oral" || !item.recordingPath) return;
+    const revision = expectedRevision ?? item.reviewRevision;
+    if (revision !== item.reviewRevision) {
+      error.value = "这条评价已更新，请重新查看后再确认。";
+      return;
+    }
     if (
       await transaction((d) => {
+        const current = projectLearning(
+          d.events,
+          exercises.value,
+          item.learnerId,
+          new Date().toISOString(),
+        ).attempts.find((attempt) => attempt.id === id);
+        if (!current || current.reviewRevision !== revision)
+          throw new Error("这条评价已更新，请重新查看后再确认。");
         d.events.push({
           id: makeId(),
           learnerId: item.learnerId,
@@ -613,7 +883,7 @@ export function useLearning(): LearningUI {
           at: new Date().toISOString(),
           attemptId: id,
           passed,
-          expectedRevision: item.reviewRevision,
+          expectedRevision: revision,
         });
       })
     )
@@ -622,6 +892,8 @@ export function useLearning(): LearningUI {
         : "复核已保存，这段内容会继续安排练习。";
   }
   async function deleteLearner() {
+    const initialView = view.value;
+    error.value = "";
     const id = learner.value?.id;
     if (!id || busy.value) return;
     await clearRun();
@@ -633,11 +905,16 @@ export function useLearning(): LearningUI {
         if (isAndroid && !d.pendingDeletions.includes(id))
           d.pendingDeletions.push(id);
         d.confirmedLearnerIds = d.confirmedLearnerIds.filter((l) => l !== id);
+        d.confirmedCourses = d.confirmedCourses.filter(
+          (item) => item.learnerId !== id,
+        );
+        delete d.learningCourseIds[id];
         d.activeLearnerId = d.learners[0]?.id ?? null;
       })
     ) {
       if (isAndroid) await purgePendingRecordings();
-      view.value = "home";
+      if (initialView !== "parent" && view.value === initialView)
+        view.value = "home";
       notice.value = "该学习档案和学习记录已删除。";
     }
   }
@@ -676,6 +953,7 @@ export function useLearning(): LearningUI {
       state.value = value;
       ready.value = true;
       if (isAndroid) void purgePendingRecordings();
+      void retryCourseCleanup();
     })
     .catch((e) => {
       error.value = `无法读取学习记录：${errorText(e)}`;
@@ -698,6 +976,19 @@ export function useLearning(): LearningUI {
     learners,
     learner,
     course,
+    courses,
+    deletedCourses,
+    exercises,
+    sourceImages: computed(() => activeRecord.value.images),
+    saveCourse,
+    assignCourse,
+    deleteCourse,
+    restoreCourse,
+    purgeCourse,
+    retryCourseCleanup,
+    pendingCourseCleanupCount: computed(
+      () => state.value.pendingCourseDeletions.length,
+    ),
     confirmed,
     stages,
     currentExercise,
@@ -711,11 +1002,18 @@ export function useLearning(): LearningUI {
     stats,
     history,
     pending,
+    reviewLog: computed(() =>
+      state.value.events.filter(
+        (event): event is Extract<LearningEvent, { type: "review" }> =>
+          event.type === "review" && event.learnerId === learner.value?.id,
+      ),
+    ),
     skills: computed(() => projection.value.skills),
     storageLabel: isAndroid
       ? "此设备 · SQLite 本地存储"
       : "浏览器预览 · 本机存储",
     addLearner,
+    renameLearner,
     selectLearner,
     confirmCourse,
     openLesson,
@@ -729,7 +1027,11 @@ export function useLearning(): LearningUI {
     stopSpeech,
     toggleRecording,
     playRecording,
+    stopPlayback,
     reviewAttempt,
+    refreshLearning: () => {
+      tick.value = new Date().toISOString();
+    },
     deleteLearner,
     dismissError: () => {
       error.value = "";

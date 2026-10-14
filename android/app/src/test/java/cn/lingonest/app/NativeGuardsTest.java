@@ -46,4 +46,13 @@ public class NativeGuardsTest {
         try { NativeGuards.payloadBytes("\ud800"); fail("Unpaired surrogate accepted"); }
         catch (IllegalArgumentException expected) {}
     }
+    @Test public void courseImageCleanupRejectsTraversalAndAllowsMissingFilesForRetry() throws Exception {
+        File root = temporary.newFolder();
+        String image = "course-images/12345678-1234-1234-1234-123456789abc.jpg";
+        assertEquals(new File(root, image).getCanonicalFile(), NativeGuards.courseImageFile(root, image));
+        for (String path : new String[]{"../" + image, "/" + image, "course-images/../secret.jpg", "course-images/x.jpg", "recordings/a/x.m4a"}) {
+            try { NativeGuards.courseImageFile(root, path); fail(path); }
+            catch (IllegalArgumentException expected) {}
+        }
+    }
 }

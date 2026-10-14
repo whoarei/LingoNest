@@ -1,27 +1,65 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  reactive,
+  ref,
+  watch,
+} from "vue";
+import { isAndroid, native } from "./native";
 import { useLearning } from "./useLearning";
-import type {
-  Ability,
-  SkillState,
-} from "../packages/learning-engine/src/model";
+import type { SkillState } from "../packages/learning-engine/src/model";
 import type { LearningUI } from "./domain";
 import Icon from "./components/AppIcon.vue";
 import SpeechSettings from "./components/SpeechSettings.vue";
+import ParentSpace from "./components/ParentSpace.vue";
+import ContentSettings from "./components/ContentSettings.vue";
+import SourceImages from "./components/SourceImages.vue";
+import {
+  abilityLabels,
+  statusLabels,
+  parentNav,
+  type ParentTab,
+} from "./parent-report";
 import "./style.css";
 
 const app = reactive(useLearning());
 const nickname = ref("");
-const profileForm = ref(false);
 const block = ref<"A" | "B" | "C">("A");
 const checkedTranscript = ref(false);
 const imagePreview = ref<string | null>(null);
 const referenceRevealed = ref(false);
-const parentAnswer = ref("");
-const parentUnlocked = ref(false);
-const listened = ref<string[]>([]);
-const deleting = ref(false);
-const deleteName = ref("");
+const parentMode = ref(false);
+const parentTab = ref<ParentTab>("overview");
+const managedCourseId = ref<string | null>(null);
+const parentSpace = ref<{ handleBack(): Promise<boolean> } | null>(null);
+const settingsOrigin = ref<LearningUI["view"]["value"]>("home");
+watch(parentTab, () => {
+  managedCourseId.value = null;
+});
+let handlingBack = false;
+let disposed = false;
+let backSubscription: { remove(): Promise<void> } | undefined;
+onMounted(() => {
+  if (isAndroid)
+    void native
+      .addListener("backButton", () => {
+        void handleBack().catch(() => {
+          app.error = "返回未完成，请重试。";
+        });
+      })
+      .then((handle) => {
+        if (disposed) void handle.remove();
+        else backSubscription = handle;
+      });
+});
+onBeforeUnmount(() => {
+  disposed = true;
+  void backSubscription?.remove();
+});
+const learningScroll = ref(0);
 const exitPractice = ref(false);
 const exitDestination = ref<"home" | "parent">("home");
 const learningView = ref<LearningUI["view"]["value"]>("home");
@@ -31,21 +69,6 @@ const nav = [
   { id: "review", label: "复习", icon: "repeat" },
   { id: "progress", label: "成长", icon: "chart" },
 ] as const;
-const abilityLabels: Record<Ability, string> = {
-  meaning: "词义理解",
-  spelling: "单词拼写",
-  usage: "句型运用",
-  readAloud: "看文朗读",
-  recall: "课文回忆",
-  dictation: "句子默写",
-  transfer: "情境应用",
-};
-const statusLabels: Record<SkillState["status"], string> = {
-  unmeasured: "还未测试",
-  learning: "正在学习",
-  mastered: "已掌握",
-  review_due: "需要复习",
-};
 const blockNames = {
   A: "篮球队的邀请",
   B: "聊聊喜欢的运动",
@@ -95,7 +118,6 @@ const dueSkills = computed(() =>
       (skill.dueAt && new Date(skill.dueAt).getTime() <= Date.now()),
   ),
 );
-const sourceImages = ["1000075731.jpg", "1000075732.jpg", "1000075733.jpg"];
 const feedbackAnswer = computed(() => {
   const ex = exercise.value;
   if (!ex) return "";
@@ -134,35 +156,107 @@ watch(
   },
 );
 watch(
-  () => app.learner?.id,
+  () => app.course.id,
   () => {
-    parentUnlocked.value = false;
-    parentAnswer.value = "";
-    listened.value = [];
-    deleting.value = false;
+    block.value = app.course.turns[0]?.block ?? "A";
     checkedTranscript.value = false;
   },
 );
-function navigate(view: LearningUI["view"]["value"]) {
-  if (view === "parent" && app.view !== "parent")
-    learningView.value = app.view === "practice" ? "home" : app.view;
+watch(
+  () => app.learner?.id,
+  () => {
+    checkedTranscript.value = false;
+  },
+);
+async function navigate(view: LearningUI["view"]["value"]) {
+  if (view === "settings" && app.view !== "settings")
+    settingsOrigin.value = app.view;
+  const wasParentMode = parentMode.value;
+  if (view === "parent" && !parentMode.value) {
+    learningView.value = ["home", "lesson", "review", "progress"].includes(
+      app.view,
+    )
+      ? app.view
+      : "home";
+    learningScroll.value = app.view === "practice" ? 0 : window.scrollY;
+  }
+  if (view !== "settings") parentMode.value = view === "parent";
   void app.stopSpeech();
-  if (view === "lesson") void app.openLesson();
-  else app.view = view;
+  app.refreshLearning();
+  if (view === "lesson") {
+    await app.openLesson();
+    if (app.view !== "lesson") {
+      parentMode.value = wasParentMode;
+      return;
+    }
+  } else app.view = view;
+  await nextTick();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
-function switchSpace() {
-  if (app.view === "practice") {
+function selectParentTab(tab: ParentTab) {
+  if (tab === "course") managedCourseId.value = null;
+  parentTab.value = tab;
+  navigate("parent");
+}
+async function switchSpace() {
+  if (app.view === "settings" && parentMode.value) {
+    await returnFromSettings();
+  } else if (app.view === "practice") {
     exitDestination.value = "parent";
     exitPractice.value = true;
-  } else navigate(app.view === "parent" ? learningView.value : "parent");
+  } else if (parentMode.value) {
+    await navigate(learningView.value);
+    window.scrollTo({ top: learningScroll.value, behavior: "instant" });
+  } else selectParentTab("overview");
+}
+async function returnFromSettings() {
+  await navigate(parentMode.value ? "parent" : settingsOrigin.value);
+}
+async function handleBack() {
+  if (handlingBack || app.busy || !app.ready) return;
+  handlingBack = true;
+  try {
+    const closeImage = document.querySelector<HTMLButtonElement>(
+      ".image-backdrop .image-close",
+    );
+    if (closeImage) {
+      closeImage.click();
+      return;
+    }
+    if (imagePreview.value) {
+      imagePreview.value = null;
+      return;
+    }
+    if (exitPractice.value) {
+      exitPractice.value = false;
+      return;
+    }
+    if (app.view === "settings") {
+      await returnFromSettings();
+      return;
+    }
+    if (app.view === "practice") {
+      exitDestination.value = "home";
+      exitPractice.value = true;
+      return;
+    }
+    if (parentMode.value) {
+      if (await parentSpace.value?.handleBack()) return;
+      if (parentTab.value !== "overview") selectParentTab("overview");
+      else await switchSpace();
+      return;
+    }
+    if (app.view !== "home") await navigate("home");
+    else if (isAndroid) await native.exitApp();
+  } finally {
+    handlingBack = false;
+  }
 }
 async function createProfile() {
   if (!nickname.value.trim() || app.busy) return;
   await app.addLearner(nickname.value.trim());
   if (!app.error) {
     nickname.value = "";
-    profileForm.value = false;
   }
 }
 function chooseOption(id: string) {
@@ -185,25 +279,11 @@ async function showReference() {
   await app.revealReference();
   if (!app.error && app.hintShown) referenceRevealed.value = true;
 }
-async function hearReview(id: string, path: string) {
-  await app.playRecording(path);
-  if (!app.error && !listened.value.includes(id))
-    listened.value = [...listened.value, id];
-}
 async function leavePractice() {
   if (app.recording) await app.toggleRecording();
   exitPractice.value = false;
   navigate(exitDestination.value);
   exitDestination.value = "home";
-}
-async function removeProfile() {
-  if (deleteName.value !== app.learner?.nickname) return;
-  await app.deleteLearner();
-  if (!app.error) {
-    deleting.value = false;
-    deleteName.value = "";
-    navigate("home");
-  }
 }
 function skillTitle(skill: SkillState) {
   return (
@@ -230,24 +310,29 @@ function shortDate(value: string) {
       <div class="brand">
         <button
           class="brand-symbol"
-          :aria-label="
-            app.view === 'parent' ? '切换到学习空间' : '切换到家长空间'
-          "
-          :title="
-            app.view === 'parent' ? '切换到学习空间' : '切换到家长空间'
-          "
-          :disabled="!app.ready || !app.learner || app.busy"
+          :aria-label="parentMode ? '切换到学习空间' : '切换到家长空间'"
+          :title="parentMode ? '切换到学习空间' : '切换到家长空间'"
+          :disabled="!app.ready || app.busy"
           @click="switchSpace"
         >
-          <Icon :name="app.view === 'parent' ? 'shield' : 'leaf'" :size="24" />
-        </button
+          <Icon :name="parentMode ? 'shield' : 'leaf'" :size="24" /></button
         ><span
           ><strong>LingoNest<span class="brand-dot">.</span></strong
-          ><small>{{ app.view === "parent" ? "家长空间" : "英语小窝" }}</small></span
+          ><small>{{ parentMode ? "家长空间" : "英语小窝" }}</small></span
         >
       </div>
       <div class="topbar-actions">
-        <span v-if="app.learner" class="profile-chip"
+        <button
+          v-if="parentMode && app.learner"
+          class="profile-chip parent-profile-chip"
+          aria-label="管理孩子档案"
+          @click="selectParentTab('profiles')"
+          :disabled="app.busy"
+        >
+          <span class="avatar-mini">{{ app.learner.nickname.slice(0, 1) }}</span
+          >{{ app.learner.nickname }}
+        </button>
+        <span v-else-if="app.learner" class="profile-chip"
           ><span class="avatar-mini">{{
             app.learner.nickname.slice(0, 1)
           }}</span
@@ -308,12 +393,28 @@ function shortDate(value: string) {
         暂停
       </button>
     </div>
+    <ParentSpace
+      v-if="app.ready && parentMode"
+      ref="parentSpace"
+      v-show="app.view === 'parent'"
+      v-model:tab="parentTab"
+      v-model:course-id="managedCourseId"
+      :app="app"
+      :active="app.view === 'parent'"
+      @settings="navigate('settings')"
+      @image="imagePreview = $event"
+    />
     <main v-if="!app.ready" class="loading-page">
       <span class="spinner large" />
       <h1>正在整理你的小窝</h1>
       <p>课文和学习记录马上就好。</p>
     </main>
-    <main v-else-if="!app.learner" class="welcome-page">
+    <main
+      v-else-if="
+        !app.learner && app.view !== 'parent' && app.view !== 'settings'
+      "
+      class="welcome-page"
+    >
       <div class="welcome-art">
         <Icon name="book" :size="68" /><span class="tiny-spark">✦</span>
       </div>
@@ -341,7 +442,7 @@ function shortDate(value: string) {
       </p>
     </main>
 
-    <main v-else-if="app.view === 'home'" class="page home-page">
+    <main v-else-if="app.view === 'home' && app.learner" class="page home-page">
       <section class="page-intro">
         <div>
           <span class="eyebrow">YOUR LITTLE LEARNING NEST</span>
@@ -356,7 +457,9 @@ function shortDate(value: string) {
       </section>
       <section class="hero-card">
         <div class="hero-copy">
-          <span class="light-eyebrow">本次学习 · UNIT 1 / LESSON 1</span>
+          <span class="light-eyebrow"
+            >本次学习 · {{ app.course.subtitle }}</span
+          >
           <h2>{{ app.course.title }}</h2>
           <p>{{ app.course.subtitle }}</p>
           <button
@@ -496,7 +599,7 @@ function shortDate(value: string) {
               <Icon name="shield" :size="17" />给陪伴学习的大人
             </div>
             <p>练习完成和真正掌握分别记录。口语要听过录音，再由家长确认。</p>
-            <button class="text-button" @click="navigate('parent')">
+            <button class="text-button" @click="selectParentTab('overview')">
               进入家长空间 <Icon name="arrow" :size="17" />
             </button>
           </section>
@@ -518,29 +621,19 @@ function shortDate(value: string) {
       <section class="source-panel">
         <div>
           <h2>对照原图，确认课文</h2>
-          <p>本课整理了三幅图中的 15 个对话话轮。请核对文字、角色和顺序。</p>
+          <p>
+            本课有
+            {{ app.course.turns.length }} 个段落或话轮。请核对文字、角色和顺序。
+          </p>
         </div>
-        <div class="source-thumbnails">
-          <button
-            v-for="(image, index) in sourceImages"
-            :key="image"
-            :aria-label="`放大课文原图 ${index + 1}`"
-            @click="imagePreview = `/source/${image}`"
-          >
-            <img
-              :src="`/source/${image}`"
-              :alt="`课文原图 ${index + 1}`"
-              loading="lazy"
-            /><span
-              >原图 {{ index + 1 }} <Icon name="expand" :size="13"
-            /></span>
-          </button>
-        </div>
+        <SourceImages :images="app.sourceImages" />
       </section>
       <div class="lesson-toolbar">
         <div class="segmented" aria-label="课文分段">
           <button
-            v-for="part in ['A', 'B', 'C'] as const"
+            v-for="part in (['A', 'B', 'C'] as const).filter((part) =>
+              app.course.turns.some((turn) => turn.block === part),
+            )"
             :key="part"
             :class="{ active: block === part }"
             @click="block = part"
@@ -560,7 +653,13 @@ function shortDate(value: string) {
         <div class="dialogue-heading">
           <span class="chapter-label">{{ block }}</span>
           <div>
-            <h2>{{ blockNames[block] }}</h2>
+            <h2>
+              {{
+                app.course.id === "starter.unit1.lesson1"
+                  ? blockNames[block]
+                  : `${block} 段课文`
+              }}
+            </h2>
             <p>逐句理解，不着急背下来。</p>
           </div>
         </div>
@@ -995,7 +1094,10 @@ function shortDate(value: string) {
           <h3>还有 {{ app.stats.pendingReviews }} 条口语待确认</h3>
           <p>等待评价不会当成答错，邀请家长听听录音吧。</p>
         </div>
-        <button class="button secondary compact" @click="navigate('parent')">
+        <button
+          class="button secondary compact"
+          @click="selectParentTab('confirm')"
+        >
           去确认
         </button>
       </section>
@@ -1127,61 +1229,24 @@ function shortDate(value: string) {
         <div>
           <span class="eyebrow">A SAFE LITTLE NEST</span>
           <h1>小窝设置</h1>
-          <p>管理学习档案、语音模型与课程音频。</p>
+          <p>管理语音、文字识别与课程生成模型。</p>
         </div>
+        <button class="text-button" @click="returnFromSettings">
+          {{ parentMode ? "返回家长空间" : "返回学习空间" }}
+          <Icon name="arrow" :size="17" />
+        </button>
       </section>
       <section class="section-panel">
         <div class="section-heading">
-          <h2>学习档案</h2>
-          <button class="text-button" @click="profileForm = !profileForm">
-            <Icon name="plus" :size="17" />新建
+          <h2>孩子档案</h2>
+          <button class="text-button" @click="selectParentTab('profiles')">
+            管理孩子档案 <Icon name="arrow" :size="17" />
           </button>
         </div>
-        <div class="learner-grid">
-          <button
-            v-for="learner in app.learners"
-            :key="learner.id"
-            class="learner-option"
-            :class="{ selected: learner.id === app.learner?.id }"
-            :disabled="app.busy"
-            @click="app.selectLearner(learner.id)"
-          >
-            <span class="avatar">{{ learner.nickname.slice(0, 1) }}</span
-            ><span
-              ><strong>{{ learner.nickname }}</strong
-              ><small>{{
-                learner.id === app.learner?.id ? "正在使用" : "切换到这个档案"
-              }}</small></span
-            ><Icon
-              v-if="learner.id === app.learner?.id"
-              name="check"
-              :size="19"
-            />
-          </button>
-        </div>
-        <form
-          v-if="profileForm"
-          class="inline-profile-form"
-          @submit.prevent="createProfile"
-        >
-          <label for="new-nickname">新档案昵称</label>
-          <div>
-            <input
-              id="new-nickname"
-              v-model="nickname"
-              maxlength="16"
-              placeholder="不需要真实姓名"
-              autocomplete="off"
-            /><button
-              class="button primary compact"
-              :disabled="!nickname.trim() || app.busy"
-            >
-              创建
-            </button>
-          </div>
-        </form>
+        <p class="field-help">在家长空间创建、切换和管理孩子的学习档案。</p>
       </section>
       <SpeechSettings :speech="app.speech" />
+      <ContentSettings />
       <section class="storage-note">
         <Icon name="shield" :size="21" />
         <div>
@@ -1193,132 +1258,26 @@ function shortDate(value: string) {
       </section>
     </main>
 
-    <main v-else-if="app.view === 'parent'" class="page parent-page">
-      <section class="page-intro">
-        <div>
-          <span class="eyebrow">GROW TOGETHER</span>
-          <h1>家长空间</h1>
-          <p>陪孩子确认每一次真实表达。单击左上角图标可返回学习空间。</p>
-        </div>
-      </section>
-      <section class="section-panel parent-space">
-        <div class="section-heading">
-          <div class="heading-with-icon">
-            <span class="circle-icon"><Icon name="shield" :size="23" /></span>
-            <div>
-              <h2>家长确认</h2>
-              <p>陪孩子确认每一次真实表达。</p>
-            </div>
-          </div>
-          <span v-if="parentUnlocked" class="tag green">已进入</span>
-        </div>
-        <form
-          v-if="!parentUnlocked"
-          class="parent-gate"
-          @submit.prevent="parentUnlocked = parentAnswer.trim() === '12'"
-        >
-          <p>请陪伴学习的大人回答：<strong>7 + 5 = ?</strong></p>
-          <div>
-            <label class="sr-only" for="parent-answer">7加5的答案</label
-            ><input
-              id="parent-answer"
-              v-model="parentAnswer"
-              inputmode="numeric"
-              pattern="12"
-              placeholder="答案"
-              autocomplete="off"
-              required
-            /><button
-              class="button primary compact"
-              :disabled="parentAnswer.trim() !== '12'"
-            >
-              进入家长空间
-            </button>
-          </div>
-          <small>这一步用于防止误触，不是身份认证。</small>
-        </form>
-        <template v-else>
-          <div class="parent-heading">
-            <h3>
-              待确认的口语 <span>{{ app.pending.length }}</span>
-            </h3>
-            <p>先回听孩子的录音，再对照参考原文确认。设备没有自动评判发音。</p>
-          </div>
-          <div v-if="!app.pending.length" class="empty-state compact-empty">
-            <Icon name="mic" :size="36" />
-            <h3>目前没有等待确认的录音</h3>
-            <p>孩子提交的朗读和口头背诵，会出现在这里。</p>
-          </div>
-          <article
-            v-for="item in app.pending"
-            :key="item.id"
-            class="oral-review-card"
-          >
-            <div class="oral-review-title">
-              <h3>{{ item.exercise.title }}</h3>
-              <span>{{ shortDate(item.submittedAt) }}</span>
-            </div>
-            <p class="review-reference" lang="en">
-              {{
-                item.exercise.referenceText ||
-                item.exercise.acceptedAnswers.join(" / ")
-              }}
-            </p>
-            <button
-              v-if="item.recordingPath"
-              class="button secondary compact"
-              :disabled="app.busy"
-              @click="hearReview(item.id, item.recordingPath)"
-            >
-              <Icon
-                :name="listened.includes(item.id) ? 'repeat' : 'play'"
-                :size="17"
-              />{{ listened.includes(item.id) ? "再听一次录音" : "先回听录音" }}
-            </button>
-            <p v-else class="inline-note">
-              这条录音暂时无法回听，请让孩子重新录制后再确认。
-            </p>
-            <p class="field-help">
-              结合完整程度、词句是否正确及能否清楚听懂来判断。
-            </p>
-            <div class="review-actions">
-              <button
-                class="button primary compact"
-                :disabled="app.busy || !listened.includes(item.id)"
-                @click="app.reviewAttempt(item.id, true)"
-              >
-                <Icon name="check" :size="17" />确认通过</button
-              ><button
-                class="button secondary compact"
-                :disabled="app.busy || !listened.includes(item.id)"
-                @click="app.reviewAttempt(item.id, false)"
-              >
-                还需要练习
-              </button>
-            </div>
-          </article>
-          <div class="danger-zone">
-            <div>
-              <h3>删除当前档案</h3>
-              <p>清除 {{ app.learner.nickname }} 在本机的学习记录和录音。</p>
-            </div>
-            <button
-              class="text-button danger-text"
-              :disabled="app.busy"
-              @click="
-                deleting = true;
-                deleteName = '';
-              "
-            >
-              <Icon name="trash" :size="18" />删除档案
-            </button>
-          </div></template
-        >
-      </section>
-    </main>
-
     <nav
-      v-if="app.ready && app.learner && app.view !== 'practice'"
+      v-if="app.ready && parentMode"
+      class="bottom-nav"
+      aria-label="家长导航"
+    >
+      <button
+        v-for="item in parentNav"
+        :key="item.id"
+        :class="{ active: app.view === 'parent' && parentTab === item.id }"
+        :aria-current="
+          app.view === 'parent' && parentTab === item.id ? 'page' : undefined
+        "
+        @click="selectParentTab(item.id)"
+      >
+        <span><Icon :name="item.icon" :size="21" /></span>{{ item.label
+        }}<i v-if="item.id === 'confirm' && app.pending.length" />
+      </button>
+    </nav>
+    <nav
+      v-else-if="app.ready && app.learner && app.view !== 'practice'"
       class="bottom-nav"
       aria-label="主导航"
     >
@@ -1378,41 +1337,6 @@ function shortDate(value: string) {
             {{
               exitDestination === "parent" ? "保存进度并切换" : "保存进度并退出"
             }}
-          </button>
-        </div>
-      </section>
-    </div>
-    <div
-      v-if="deleting"
-      class="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="delete-title"
-    >
-      <section class="modal-card">
-        <span class="circle-icon danger-text"
-          ><Icon name="trash" :size="26"
-        /></span>
-        <h2 id="delete-title">删除「{{ app.learner?.nickname }}」的小窝？</h2>
-        <p>
-          该档案在本机的学习记录和录音将被删除，无法在应用内恢复。其他档案不受影响。
-        </p>
-        <label for="delete-name"
-          >输入昵称「{{ app.learner?.nickname }}」确认</label
-        ><input id="delete-name" v-model="deleteName" autocomplete="off" />
-        <div class="modal-actions">
-          <button
-            class="button secondary"
-            :disabled="app.busy"
-            @click="deleting = false"
-          >
-            保留档案</button
-          ><button
-            class="button danger"
-            :disabled="deleteName !== app.learner?.nickname || app.busy"
-            @click="removeProfile"
-          >
-            确认删除
           </button>
         </div>
       </section>

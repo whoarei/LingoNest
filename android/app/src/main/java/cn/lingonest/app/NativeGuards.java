@@ -71,4 +71,14 @@ final class NativeGuards {
             throw new IllegalStateException(impossible);
         }
     }
+
+    static File courseImageFile(File filesDir, String path) throws IOException {
+        if (path == null || !path.matches("course-images/[a-f0-9-]{36}\\.jpg"))
+            throw new IllegalArgumentException("课程图片路径无效。");
+        File root = new File(filesDir.getCanonicalFile(), "course-images");
+        File file = new File(filesDir.getCanonicalFile(), path);
+        if (!root.getAbsoluteFile().equals(root.getCanonicalFile()) || !file.getAbsoluteFile().equals(file.getCanonicalFile()) || !file.getParentFile().equals(root))
+            throw new IOException("课程图片路径无效。");
+        return file;
+    }
 }

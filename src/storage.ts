@@ -5,12 +5,18 @@ import type {
   CellRef,
   GradeResult,
 } from "../packages/learning-engine/src/model";
-import { exercises } from "./course";
+import { exercises as starterExercises } from "./course";
+import {
+  starterRecord,
+  validateCourseRecord,
+  type CourseRecord,
+} from "./course-library";
 import { isAndroid, native } from "./native";
+import type { CourseDeletion } from "./course-deletion";
 
 // M1 envelope, intentionally distinct from the full schemaVersion 2.0.0 course-package contract.
 export interface LocalState {
-  formatVersion: 1;
+  formatVersion: 2;
   courseVersion: string;
   learners: Learner[];
   activeLearnerId: string | null;
@@ -19,10 +25,15 @@ export interface LocalState {
   lastObservedAt: string | null;
   runs: PracticeRun[];
   pendingDeletions: string[];
+  pendingCourseDeletions: CourseDeletion[];
+  courses: CourseRecord[];
+  learningCourseIds: Record<string, string>;
+  confirmedCourses: { learnerId: string; courseId: string; version: string }[];
 }
 export interface PracticeRun {
   id: string;
   learnerId: string;
+  courseId: string;
   stageId: StageId | null;
   exerciseIds: string[];
   index: number;
@@ -33,7 +44,7 @@ export interface PracticeRun {
   recordingPath: string | null;
 }
 export const emptyState = (): LocalState => ({
-  formatVersion: 1,
+  formatVersion: 2,
   courseVersion: "0.1.0",
   learners: [],
   activeLearnerId: null,
@@ -42,12 +53,15 @@ export const emptyState = (): LocalState => ({
   lastObservedAt: null,
   runs: [],
   pendingDeletions: [],
+  pendingCourseDeletions: [],
+  courses: [],
+  learningCourseIds: {},
+  confirmedCourses: [],
 });
 const validText = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 const validTime = (value: unknown): value is string =>
   typeof value === "string" && Number.isFinite(Date.parse(value));
-const exerciseIds = new Set(exercises.map((e) => e.id));
 const validCell = (value: CellRef) =>
   value &&
   validText(value.knowledgeId) &&
@@ -82,13 +96,110 @@ function validGrade(grade: GradeResult) {
 export function decodeState(payload: string): LocalState {
   const s = JSON.parse(payload) as LocalState;
   if (
-    s.formatVersion !== 1 ||
+    (s as { formatVersion: number }).formatVersion === 1 &&
+    s.courseVersion === "0.1.0"
+  ) {
+    if (!Array.isArray(s.confirmedLearnerIds) || !Array.isArray(s.runs))
+      throw new Error("旧版学习档案格式不完整，已保留原数据。");
+    s.formatVersion = 2;
+    s.courses = [];
+    s.learningCourseIds = {};
+    s.confirmedCourses = s.confirmedLearnerIds.map((learnerId) => ({
+      learnerId,
+      courseId: starterRecord.id,
+      version: "0.1.0",
+    }));
+    s.runs.forEach((run) => {
+      run.courseId = starterRecord.id;
+    });
+  }
+  if (
+    s.formatVersion !== 2 ||
     s.courseVersion !== "0.1.0" ||
     !Array.isArray(s.learners) ||
     !Array.isArray(s.events) ||
     !Array.isArray(s.confirmedLearnerIds)
   )
     throw new Error("本地数据格式不受支持。为保护学习记录，已停止写入。");
+  if (
+    !Array.isArray(s.courses) ||
+    s.courses.length > 300 ||
+    s.courses.filter((record) => record && !record.deletedAt).length > 30 ||
+    !s.learningCourseIds ||
+    typeof s.learningCourseIds !== "object" ||
+    Array.isArray(s.learningCourseIds) ||
+    !Array.isArray(s.confirmedCourses)
+  )
+    throw new Error("课程库数据格式无效，已停止写入。");
+  s.courses.forEach(validateCourseRecord);
+  // 0.1.5 snapshots predate durable course cleanup; retain the existing envelope version.
+  if (s.pendingCourseDeletions === undefined) s.pendingCourseDeletions = [];
+  if (
+    !Array.isArray(s.pendingCourseDeletions) ||
+    s.pendingCourseDeletions.length > 30
+  )
+    throw new Error("课程删除恢复记录无效。");
+  const cleanupIds = new Set<string>();
+  for (const job of s.pendingCourseDeletions) {
+    if (!job || !job.record) throw new Error("课程删除恢复记录无效。");
+    validateCourseRecord(job.record);
+    if (
+      cleanupIds.has(job.record.id) ||
+      s.courses.some((item) => item.id === job.record.id) ||
+      !Array.isArray(job.images) ||
+      job.images.length > 12 ||
+      job.images.some(
+        (path) =>
+          typeof path !== "string" ||
+          !/^course-images\/[a-f0-9-]{36}\.jpg$/.test(path) ||
+          ![...job.record.images, ...job.record.vocabularyImages].some(
+            (image) => image.path === path,
+          ) ||
+          s.courses.some((item) =>
+            [...item.images, ...item.vocabularyImages].some(
+              (image) => image.path === path,
+            ),
+          ),
+      ) ||
+      !Array.isArray(job.recordings) ||
+      job.recordings.length > 100000 ||
+      job.recordings.some(
+        (path) =>
+          typeof path !== "string" ||
+          !/^recordings\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\.m4a$/.test(
+            path,
+          ) ||
+          s.events.some(
+            (event) =>
+              event.type === "attempt" && event.attempt.recordingPath === path,
+          ) ||
+          s.runs.some((run) => run.recordingPath === path),
+      )
+    )
+      throw new Error("课程删除恢复记录无效。");
+    cleanupIds.add(job.record.id);
+  }
+  if (new Set(s.courses.map((record) => record.id)).size !== s.courses.length)
+    throw new Error("课程标识重复。");
+  const packages = [
+    starterRecord.package!,
+    ...s.courses
+      .filter((record) => record.status === "published")
+      .map((record) => record.package!),
+  ];
+  const courseIds = new Set(packages.map((item) => item.course.id));
+  const availableCourseIds = new Set([
+    starterRecord.id,
+    ...s.courses
+      .filter((record) => !record.deletedAt && record.status === "published")
+      .map((record) => record.id),
+  ]);
+  const exercises = [
+    ...starterExercises,
+    ...packages.slice(1).flatMap((item) => item.exercises),
+  ];
+  const exerciseIds = new Set(exercises.map((item) => item.id));
+  if (exerciseIds.size !== exercises.length) throw new Error("练习标识重复。");
   if (!Array.isArray(s.runs) || !Array.isArray(s.pendingDeletions))
     throw new Error("练习恢复数据格式不完整，已停止写入。");
   if (s.lastObservedAt !== null && !validTime(s.lastObservedAt))
@@ -111,13 +222,37 @@ export function decodeState(payload: string): LocalState {
     s.confirmedLearnerIds.some((id) => !ids.has(id))
   )
     throw new Error("学习档案引用无效，已停止写入。");
+  if (
+    Object.entries(s.learningCourseIds).some(
+      ([learnerId, courseId]) =>
+        !ids.has(learnerId) || !availableCourseIds.has(courseId),
+    ) ||
+    s.confirmedCourses.some(
+      (item) =>
+        !item ||
+        !ids.has(item.learnerId) ||
+        !packages.some(
+          (pack) =>
+            pack.course.id === item.courseId &&
+            pack.course.version === item.version,
+        ),
+    )
+  )
+    throw new Error("学习课程引用无效，已停止写入。");
   for (const run of s.runs) {
     if (
       !run ||
       !validText(run.id) ||
       !ids.has(run.learnerId) ||
+      !courseIds.has(run.courseId) ||
       !Array.isArray(run.exerciseIds) ||
       run.exerciseIds.some((id) => !exerciseIds.has(id)) ||
+      run.exerciseIds.some(
+        (id) =>
+          !packages
+            .find((pack) => pack.course.id === run.courseId)!
+            .exercises.some((exercise) => exercise.id === id),
+      ) ||
       !Number.isInteger(run.index) ||
       run.index < 0 ||
       run.index > run.exerciseIds.length ||

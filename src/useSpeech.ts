@@ -1,4 +1,12 @@
-import { computed, ref } from "vue";
+import {
+  computed,
+  ref,
+  isRef,
+  watch,
+  getCurrentScope,
+  onScopeDispose,
+  type Ref,
+} from "vue";
 import { isAndroid, native } from "./native";
 import { courseAudioSpec } from "./course-speech";
 import {
@@ -7,28 +15,39 @@ import {
   type SpeechStatus,
   emptyCourseAudioStatus,
   type CourseAudioSpec,
+  type SpeechConfiguration,
 } from "./speech-types";
 
-export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
-  const configuration = ref(defaultSpeechConfiguration());
+export function useSpeech(
+  source: CourseAudioSpec | Ref<CourseAudioSpec> = courseAudioSpec,
+  sharedConfiguration?: Ref<SpeechConfiguration>,
+) {
+  const course = isRef(source) ? source : ref(source);
+  const configuration =
+    sharedConfiguration ?? ref(defaultSpeechConfiguration());
   const ready = ref(false),
     settingsError = ref("");
   const phase = ref<SpeechStatus["phase"]>("idle");
   const lastCached = ref(false);
   const cache = ref({ count: 0, bytes: 0 });
-  const courseAudio = ref(emptyCourseAudioStatus(course.assets.length));
+  const courseAudio = ref(emptyCourseAudioStatus(course.value.assets.length));
   const courseError = ref("");
   const courseReady = ref(false);
   const courseGenerating = ref(false);
-  const courseProgress = ref({ completed: 0, total: course.assets.length });
+  const courseProgress = ref({
+    completed: 0,
+    total: course.value.assets.length,
+  });
   const lastSource = ref<SpeechStatus["source"]>();
   let sequence = 0;
   let loaded: Promise<void> | undefined;
+  let courseEpoch = 0;
+  const subscriptions: { remove(): Promise<void> }[] = [];
   const label = computed(() =>
     courseAudio.value.ready > 0
       ? `课程音频 · ${courseAudio.value.voice} · 本地长期保存`
       : configuration.value.mode === "ai"
-        ? "课程音频待生成 · 请到设置中准备"
+        ? "课程音频待生成 · 请到家长空间的课程管理准备"
         : "设备音色 · 需已安装英语离线语音包",
   );
   async function load() {
@@ -70,14 +89,18 @@ export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
     lastSource.value = undefined;
     try {
       if (isAndroid) {
-        const asset = course.assets.find(
+        const activeCourse = course.value;
+        const asset = activeCourse.assets.find(
           (asset) => asset.text === text.trim().normalize("NFC"),
         );
         if (!preview && !asset)
           throw new Error("该文字不在课程音频资源清单中。");
         const result = preview
           ? await native.speak({ text })
-          : await native.playCourseAudio({ course, assetId: asset!.id });
+          : await native.playCourseAudio({
+              course: activeCourse,
+              assetId: asset!.id,
+            });
         if (token === sequence) {
           lastCached.value = !!result?.cached;
           lastSource.value = result?.source;
@@ -153,11 +176,15 @@ export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
   }
   async function refreshCourse() {
     if (!isAndroid) return;
+    const epoch = courseEpoch;
     try {
-      courseAudio.value = await native.getCourseAudio({ course });
+      const result = await native.getCourseAudio({ course: course.value });
+      if (epoch !== courseEpoch) return;
+      courseAudio.value = result;
       courseReady.value = true;
       courseError.value = "";
     } catch (error) {
+      if (epoch !== courseEpoch) return;
       courseError.value =
         error instanceof Error ? error.message : String(error);
       courseReady.value = false;
@@ -169,7 +196,9 @@ export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
     await stop();
     courseGenerating.value = true;
     try {
-      courseAudio.value = await native.generateCourseAudio({ course });
+      courseAudio.value = await native.generateCourseAudio({
+        course: course.value,
+      });
       return true;
     } catch (error) {
       if ((error as { code?: string }).code !== "COURSE_AUDIO_CANCELLED")
@@ -187,25 +216,47 @@ export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
     if (isAndroid) {
       await cancelCourse();
       await stop();
-      courseAudio.value = await native.clearCourseAudio({ course });
+      courseAudio.value = await native.clearCourseAudio({
+        course: course.value,
+      });
       courseReady.value = true;
       courseError.value = "";
     }
   }
   if (isAndroid)
-    void native.addListener("speechStatus", (status) => {
-      phase.value = status.phase;
-      if (status.source) lastSource.value = status.source;
-      if (status.cached !== undefined) lastCached.value = status.cached;
-    });
+    void native
+      .addListener("speechStatus", (status) => {
+        phase.value = status.phase;
+        if (status.source) lastSource.value = status.source;
+        if (status.cached !== undefined) lastCached.value = status.cached;
+      })
+      .then((handle) => subscriptions.push(handle));
   if (isAndroid)
-    void native.addListener("courseAudioProgress", (status) => {
-      courseGenerating.value = status.generating;
-      if (status.total)
-        courseProgress.value = {
-          completed: status.completed,
-          total: status.total,
-        };
+    void native
+      .addListener("courseAudioProgress", (status) => {
+        courseGenerating.value = status.generating;
+        if (status.total)
+          courseProgress.value = {
+            completed: status.completed,
+            total: status.total,
+          };
+      })
+      .then((handle) => subscriptions.push(handle));
+  watch(course, async (next, previous) => {
+    if (JSON.stringify(next) === JSON.stringify(previous)) return;
+    courseEpoch++;
+    await cancelCourse();
+    await stop();
+    courseReady.value = false;
+    courseAudio.value = emptyCourseAudioStatus(next.assets.length);
+    courseProgress.value = { completed: 0, total: next.assets.length };
+    await refreshCourse().catch(() => {});
+  });
+  if (getCurrentScope())
+    onScopeDispose(() => {
+      subscriptions.forEach((handle) => {
+        void handle.remove();
+      });
     });
   void load().catch(() => {});
   return {
@@ -224,7 +275,8 @@ export function useSpeech(course: CourseAudioSpec = courseAudioSpec) {
     courseError,
     courseGenerating,
     courseProgress,
-    courseTitle: course.title,
+    courseTitle: computed(() => course.value.title),
+    courseSpec: course,
     refreshCourse,
     generateCourse,
     cancelCourse,
