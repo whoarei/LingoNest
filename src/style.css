@@ -118,12 +118,16 @@ button svg {
   color: var(--green);
 }
 .brand-symbol {
+  color: var(--green);
   display: grid;
   place-items: center;
   width: 42px;
   height: 42px;
   border-radius: 14px;
   background: #e4eade;
+}
+.brand-symbol:hover:not(:disabled) {
+  background: #d5dfcc;
 }
 .brand strong {
   display: block;
@@ -2781,6 +2785,109 @@ h1 {
     font-size: 11px;
   }
 }
+.speech-settings {
+  margin: 24px 0;
+  padding: 24px;
+  background: #f8f6ee;
+  border: 1px solid #dedfd0;
+  border-radius: 18px;
+}
+.speech-settings .section-heading p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #667568;
+  margin-top: 5px;
+}
+.speech-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.speech-fields > label:not(.checkbox-label) {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0 7px;
+}
+.speech-fields select {
+  width: 100%;
+  min-height: 46px;
+  background: #fff;
+  color: #293e33;
+  border: 1px solid #daddd0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.speech-fields .checkbox-label {
+  margin: 14px 0;
+  font-size: 12px;
+}
+.speech-fields input[type="range"] {
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  accent-color: #267267;
+}
+.speech-actions,
+.speech-presets,
+.speech-speed-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.speech-actions > button,
+.speech-presets > button,
+.speech-speed-buttons > button {
+  margin-right: 8px;
+  margin-bottom: 8px;
+}
+.speech-settings .quiet-note {
+  display: block;
+  line-height: 1.8;
+  text-align: left;
+  margin: 16px 0;
+  font-size: 12px;
+}
+.speech-cache {
+  font-size: 12px;
+  margin-top: 18px;
+  border-top: 1px solid #dedfd0;
+  padding-top: 14px;
+}
+.speech-cache .text-button {
+  margin: 8px 18px 0 0;
+}
+.speech-error {
+  color: #a33d2d;
+}
+.speech-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto 16px;
+  padding: 10px 16px;
+  max-width: 1024px;
+  background: #e7ecdf;
+  border-radius: 12px;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .speech-settings {
+    padding: 18px 14px;
+  }
+  .speech-fields input,
+  .speech-fields select,
+  .speech-fields textarea {
+    font-size: 16px;
+  }
+  .speech-status-bar {
+    margin-left: 20px;
+    margin-right: 20px;
+    font-size: 12px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
@@ -2789,4 +2896,32 @@ h1 {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+.course-audio-panel {
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.course-audio-panel h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.course-audio-panel p {
+  line-height: 1.7;
+  font-size: 13px;
+}
+.course-audio-panel progress {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  accent-color: var(--green);
+}
+.course-audio-panel .text-button {
+  display: block;
+  margin-top: 14px;
+}
+.course-generation-bar {
+  background: #e9efdf;
 }

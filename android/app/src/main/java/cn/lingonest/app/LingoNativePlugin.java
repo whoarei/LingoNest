@@ -29,6 +29,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.File;
 import java.io.IOException;
@@ -43,7 +44,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Narrow offline bridge: no external paths, arbitrary SQL, uploads, or network TTS. */
+/** Narrow bridge: local learning/recordings and explicitly configured provider speech. */
 @CapacitorPlugin(name = "LingoNative", permissions = {
     @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
 })
@@ -51,6 +52,17 @@ public class LingoNativePlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private NativeStateStore stateStore;
+    private SpeechConfigStore speechConfigStore;
+    private AiSpeechService aiSpeech;
+    private AiSpeechService courseDownloader;
+    private CourseAudioStore courseAudioStore;
+    private final ExecutorService courseWorker = Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicInteger courseGeneration = new java.util.concurrent.atomic.AtomicInteger();
+    private PluginCall pendingCourseCall;
+    private final ExecutorService speechWorker = Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicInteger speechGeneration = new java.util.concurrent.atomic.AtomicInteger();
+    private PluginCall pendingAiCall;
+    private double deviceSpeechSpeed = 0.85;
     private boolean foreground = true;
     private boolean destroyed;
     private AudioManager audioManager;
@@ -79,6 +91,7 @@ public class LingoNativePlugin extends Plugin {
     private final Map<String, Integer> ownerGenerations = new HashMap<>();
     private final AudioManager.OnAudioFocusChangeListener focusListener = change -> main.post(() -> {
         if (change < 0) {
+            cancelAiSpeech();
             stopSpeechInternal("AUDIO_INTERRUPTED", "音频被其他应用中断。");
             stopPlayer(); finishRecording("audio_interrupted");
         }
@@ -100,6 +113,7 @@ public class LingoNativePlugin extends Plugin {
     };
     private final BroadcastReceiver audioDisconnected = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            cancelAiSpeech();
             stopSpeechInternal("AUDIO_INTERRUPTED", "音频设备已断开。");
             stopPlayer();
             finishRecording("audio_interrupted");
@@ -108,6 +122,9 @@ public class LingoNativePlugin extends Plugin {
 
     @Override public void load() {
         stateStore = new NativeStateStore(getContext().getApplicationContext());
+        speechConfigStore = new SpeechConfigStore(getContext().getApplicationContext());
+        try { aiSpeech = new AiSpeechService(getContext().getFilesDir()); } catch (IOException ignored) { /* Report through bridge, preserving learning state. */ }
+        try { courseAudioStore = new CourseAudioStore(getContext().getFilesDir()); courseDownloader = new AiSpeechService(getContext().getFilesDir()); } catch (IOException ignored) { /* Existing learning remains available. */ }
         audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         ContextCompat.registerReceiver(getContext(), audioDisconnected,
             new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED);
@@ -156,17 +173,242 @@ public class LingoNativePlugin extends Plugin {
         }
     }
 
+    @PluginMethod public void getSpeechConfig(PluginCall call) {
+        storage.execute(() -> { try { call.resolve(SpeechConfigStore.publicConfig(speechConfigStore.load())); }
+            catch (Exception invalid) { call.reject("语音配置无法读取，请在设置中清除后重新配置。", "SPEECH_CONFIG_UNREADABLE"); } });
+    }
+    @PluginMethod public void setSpeechConfig(PluginCall call) {
+        main.post(() -> {
+            if (pendingCourseCall != null) { call.reject("请先暂停课程音频生成，再修改配置。", "COURSE_AUDIO_BUSY"); return; }
+            cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "语音设置已更新。"); stopPlayer();
+            storage.execute(() -> { try { call.resolve(SpeechConfigStore.publicConfig(speechConfigStore.save(call.getData()))); }
+                catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); }
+                catch (Exception failure) { call.reject("语音配置保存失败，请重试。", "SPEECH_CONFIG_ERROR"); } });
+        });
+    }
+    @PluginMethod public void clearSpeechConfig(PluginCall call) {
+        main.post(() -> {
+            if (pendingCourseCall != null) { call.reject("请先暂停课程音频生成，再移除配置。", "COURSE_AUDIO_BUSY"); return; }
+            cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "语音配置已清除。"); stopPlayer();
+            storage.execute(() -> { try { speechConfigStore.clear(); call.resolve(SpeechConfigStore.publicConfig(SpeechConfig.defaults())); }
+                catch (Exception failure) { call.reject("语音配置清除失败，请重试。", "SPEECH_CONFIG_ERROR"); } });
+        });
+    }
+    @PluginMethod public void getSpeechCacheInfo(PluginCall call) {
+        speechWorker.execute(() -> { try {
+            if (aiSpeech == null) throw new IOException();
+            long[] info = aiSpeech.info(); call.resolve(new JSObject().put("count", info[0]).put("bytes", info[1]));
+        } catch (Exception failure) { call.reject("无法读取语音缓存。", "SPEECH_CACHE_ERROR"); } });
+    }
+    @PluginMethod public void clearSpeechCache(PluginCall call) {
+        main.post(() -> {
+            if (pendingCourseCall != null) { call.reject("请先暂停课程音频生成。", "COURSE_AUDIO_BUSY"); return; }
+            cancelAiSpeech(); stopPlayer();
+            speechWorker.execute(() -> { try { if (aiSpeech == null) throw new IOException(); aiSpeech.clear(); call.resolve(); }
+                catch (Exception failure) { call.reject("语音缓存清理失败，请重试。", "SPEECH_CACHE_ERROR"); } });
+        });
+    }
+    private CourseAudioSpec courseSpec(PluginCall call) {
+        try {
+            JSONObject input = call.getData().getJSONObject("course");
+            JSONArray entries = input.getJSONArray("assets");
+            if (entries.length() > 512) throw new IllegalArgumentException("课程音频清单过大。");
+            List<CourseAudioSpec.Asset> assets = new ArrayList<>();
+            for (int i = 0; i < entries.length(); i++) { JSONObject item = entries.getJSONObject(i); assets.add(new CourseAudioSpec.Asset(item.getString("id"), item.getString("text"))); }
+            return new CourseAudioSpec(input.getString("courseId"), input.getString("courseVersion"), input.getString("title"), assets);
+        } catch (IllegalArgumentException invalid) { throw invalid; }
+        catch (Exception invalid) { throw new IllegalArgumentException("课程音频清单无效。"); }
+    }
+    private JSObject courseStatus(CourseAudioSpec spec) throws Exception {
+        SpeechConfig config = null; try { config = speechConfigStore.load(); } catch (Exception ignored) { /* Reading course resources does not require decrypting a provider key. */ }
+        CourseAudioStore.Status status = courseAudioStore.status(spec, config);
+        JSObject result = new JSObject().put("total", status.total).put("ready", status.ready).put("bytes", status.bytes).put("complete", status.complete).put("voice", status.voice).put("model", status.model).put("matchesSettings", status.matchesSettings);
+        result.put("pending", status.hasPending ? new JSObject().put("ready", status.pendingReady).put("total", status.total).put("voice", status.pendingVoice) : JSONObject.NULL);
+        return result;
+    }
+    @PluginMethod public void getCourseAudio(PluginCall call) {
+        final CourseAudioSpec spec; try { spec = courseSpec(call); } catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); return; }
+        storage.execute(() -> { try { call.resolve(courseStatus(spec)); }
+            catch (Exception failure) { call.reject("课程音频无法读取，已保留文件，请勿清除应用数据。", "COURSE_AUDIO_ERROR"); } });
+    }
+    @PluginMethod public void playCourseAudio(PluginCall call) {
+        final CourseAudioSpec spec; final CourseAudioSpec.Asset asset;
+        try { spec = courseSpec(call); asset = spec.asset(call.getString("assetId")); call.getData().put("text", asset.text); }
+        catch (Exception invalid) { call.reject("课程音频标识无效。", "INVALID_ARGUMENT"); return; }
+        main.post(() -> {
+            if (!foreground || destroyed) { call.reject("请回到应用后播放。", "APP_NOT_ACTIVE"); return; }
+            if (recorder != null || permissionPending) { call.reject("请先结束录音。", "AUDIO_BUSY"); return; }
+            cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "开始播放课程音频。"); stopPlayer();
+            int generation = speechGeneration.get(); pendingAiCall = call;
+            storage.execute(() -> {
+                try {
+                    File file = courseAudioStore.playable(spec, asset.id); boolean hasPack = courseAudioStore.hasSelection(spec);
+                    SpeechConfig config; try { config = speechConfigStore.load(); } catch (Exception ignored) { config = SpeechConfig.defaults(); }
+                    SpeechConfig playback = config;
+                    main.post(() -> {
+                        if (generation != speechGeneration.get() || pendingAiCall != call) return;
+                        if (file != null) { pendingAiCall = null; playSpeechFile(file, call, false, playback.speed, "course"); }
+                        else if (!hasPack && "device".equals(playback.mode)) speakDevice(call, generation, playback.speed);
+                        else { pendingAiCall = null; call.reject("本段课程音频未就绪，请在设置中生成或继续生成整课音频。学习时不会自动调用 API。", "COURSE_AUDIO_MISSING"); }
+                    });
+                } catch (Exception failure) { main.post(() -> { if (generation != speechGeneration.get() || pendingAiCall != call) return; pendingAiCall = null; call.reject("课程音频损坏或不可读取，请在设置中修复。", "COURSE_AUDIO_ERROR"); }); }
+            });
+        });
+    }
+    private void courseProgress(boolean generating, int completed, int total) {
+        notifyListeners("courseAudioProgress", new JSObject().put("generating", generating).put("completed", completed).put("total", total));
+    }
+    private void cancelCourseGeneration() {
+        courseGeneration.incrementAndGet(); if (courseDownloader != null) courseDownloader.cancel();
+        if (pendingCourseCall != null) { pendingCourseCall.reject("课程音频生成已暂停，已完成部分保留。", "COURSE_AUDIO_CANCELLED"); pendingCourseCall = null; }
+        courseProgress(false, 0, 0);
+    }
+    @PluginMethod public void cancelCourseAudioGeneration(PluginCall call) { main.post(() -> { cancelCourseGeneration(); call.resolve(); }); }
+    @PluginMethod public void generateCourseAudio(PluginCall call) {
+        final CourseAudioSpec spec; try { spec = courseSpec(call); } catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); return; }
+        main.post(() -> {
+            if (!foreground || destroyed || recorder != null || permissionPending) { call.reject("请回到设置并结束录音后生成。", "AUDIO_BUSY"); return; }
+            if (pendingCourseCall != null) { call.reject("课程音频正在生成。", "COURSE_AUDIO_BUSY"); return; }
+            if (courseAudioStore == null || courseDownloader == null) { call.reject("课程音频存储不可用。", "COURSE_AUDIO_ERROR"); return; }
+            cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "开始生成课程音频。"); stopPlayer();
+            final int epoch = courseGeneration.incrementAndGet(); pendingCourseCall = call; courseProgress(true, 0, spec.assets.size());
+            storage.execute(() -> {
+                try {
+                    SpeechConfig config = speechConfigStore.load();
+                    if (!"ai".equals(config.mode)) throw new IllegalArgumentException("请先保存 AI 语音服务配置。");
+                    courseWorker.execute(() -> {
+                        int completed = 0;
+                        try {
+                            if (epoch != courseGeneration.get()) return;
+                            String generation = courseAudioStore.begin(spec, config);
+                            for (CourseAudioSpec.Asset asset : spec.assets) {
+                                if (epoch != courseGeneration.get()) return;
+                                if (courseAudioStore.existing(spec, generation, asset) == null) {
+                                    File stage = courseAudioStore.stage(spec, generation);
+                                    try {
+                                        courseDownloader.downloadTo(config, asset.text, stage, () -> epoch != courseGeneration.get());
+                                        if (epoch != courseGeneration.get()) return;
+                                        courseAudioStore.commit(spec, generation, asset, stage);
+                                    } finally { if (stage.exists()) stage.delete(); }
+                                }
+                                completed++; final int progress = completed;
+                                main.post(() -> { if (epoch == courseGeneration.get() && pendingCourseCall == call) courseProgress(true, progress, spec.assets.size()); });
+                            }
+                            if (epoch != courseGeneration.get()) return;
+                            courseAudioStore.finish(spec, generation);
+                            JSObject result = courseStatus(spec);
+                            main.post(() -> { if (epoch != courseGeneration.get() || pendingCourseCall != call) return; pendingCourseCall = null; courseProgress(false, spec.assets.size(), spec.assets.size()); call.resolve(result); });
+                        } catch (Exception failure) { main.post(() -> rejectCourseGeneration(call, epoch, failure)); }
+                    });
+                } catch (Exception failure) { main.post(() -> rejectCourseGeneration(call, epoch, failure)); }
+            });
+        });
+    }
+    private void rejectCourseGeneration(PluginCall call, int epoch, Exception failure) {
+        if (epoch != courseGeneration.get() || pendingCourseCall != call) return;
+        pendingCourseCall = null; courseProgress(false, 0, 0);
+        if (failure instanceof AiSpeechService.Failure) { AiSpeechService.Failure f = (AiSpeechService.Failure)failure; call.reject(f.getMessage(), f.code); }
+        else if (failure instanceof IllegalArgumentException) call.reject(failure.getMessage(), "INVALID_ARGUMENT");
+        else call.reject("课程音频生成未完成，已生成部分保留。请检查网络和存储空间后继续。", "COURSE_AUDIO_GENERATION_FAILED");
+    }
+    @PluginMethod public void clearCourseAudio(PluginCall call) {
+        final CourseAudioSpec spec; try { spec = courseSpec(call); } catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); return; }
+        main.post(() -> {
+            cancelCourseGeneration(); cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "本课音频已删除。"); stopPlayer();
+            courseWorker.execute(() -> { try { courseAudioStore.clear(spec); call.resolve(courseStatus(spec)); }
+                catch (Exception failure) { call.reject("课程音频删除未完成，请重试。", "COURSE_AUDIO_ERROR"); } });
+        });
+    }
+    private void cancelAiSpeech() {
+        speechGeneration.incrementAndGet();
+        if (aiSpeech != null) aiSpeech.cancel();
+        if (pendingAiCall != null) { pendingAiCall.reject("语音已停止。", "AUDIO_INTERRUPTED"); pendingAiCall = null; }
+        notifyListeners("speechStatus", new JSObject().put("phase", "idle"));
+    }
     @PluginMethod public void speak(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.trim().isEmpty() || text.length() > 3000) { call.reject("朗读文字不能为空且不能超过 3000 字符。", "INVALID_ARGUMENT"); return; }
+        main.post(() -> {
+            if (pendingCourseCall != null) { call.reject("请先暂停课程音频生成，再试听新音色。", "COURSE_AUDIO_BUSY"); return; }
+            if (!foreground || destroyed) { call.reject("请回到应用后播放。", "APP_NOT_ACTIVE"); return; }
+            if (recorder != null || permissionPending) { call.reject("请先结束录音。", "AUDIO_BUSY"); return; }
+            cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "已开始新的朗读。"); stopPlayer();
+            final int generation = speechGeneration.get(); pendingAiCall = call;
+            storage.execute(() -> {
+                try {
+                    SpeechConfig config = speechConfigStore.load();
+                    main.post(() -> {
+                        if (generation != speechGeneration.get() || pendingAiCall != call) return;
+                        if ("device".equals(config.mode)) { speakDevice(call, generation, config.speed); return; }
+                        if (aiSpeech == null) { pendingAiCall = null; call.reject("语音缓存不可用，请检查设备空间。", "SPEECH_CACHE_ERROR"); return; }
+                        notifyListeners("speechStatus", new JSObject().put("phase", "generating").put("source", "ai"));
+                        speechWorker.execute(() -> {
+                            try {
+                                AiSpeechService.Result result = aiSpeech.prepare(config, text, () -> generation != speechGeneration.get());
+                                main.post(() -> {
+                                    if (generation != speechGeneration.get() || pendingAiCall != call) return;
+                                    pendingAiCall = null;
+                                    if (!foreground || destroyed) { call.reject("请回到应用后播放。", "APP_NOT_ACTIVE"); return; }
+                                    playSpeechFile(result.file, call, result.cached, config.speed);
+                                });
+                            } catch (Exception failure) { main.post(() -> {
+                                if (generation != speechGeneration.get() || pendingAiCall != call) return;
+                                pendingAiCall = null;
+                                notifyListeners("speechStatus", new JSObject().put("phase", "idle"));
+                                if (failure instanceof AiSpeechService.Failure) { AiSpeechService.Failure f = (AiSpeechService.Failure)failure; call.reject(f.getMessage(), f.code); }
+                                else if (failure instanceof java.net.SocketTimeoutException) call.reject("语音生成超时，请稍后重试。", "SPEECH_TIMEOUT");
+                                else call.reject("AI 语音生成失败，请检查网络与接口设置。", "SPEECH_NETWORK_ERROR");
+                            }); }
+                        });
+                    });
+                } catch (Exception failure) { main.post(() -> {
+                    if (generation != speechGeneration.get() || pendingAiCall != call) return;
+                    pendingAiCall = null; call.reject("语音配置无法读取，请在设置中重新配置。", "SPEECH_CONFIG_UNREADABLE");
+                }); }
+            });
+        });
+    }
+    private void playSpeechFile(File file, PluginCall call, boolean cached, double speed) {
+        playSpeechFile(file, call, cached, speed, "ai");
+    }
+    private void playSpeechFile(File file, PluginCall call, boolean cached, double speed, String source) {
+        try {
+            if (!requestFocus(false)) { call.reject("音频正被其他应用使用。", "AUDIO_FOCUS_DENIED"); return; }
+            MediaPlayer next = new MediaPlayer(); player = next; playerCall = call;
+            next.setAudioAttributes(audioAttributes(false)); next.setDataSource(file.getAbsolutePath());
+            next.setOnPreparedListener(ready -> {
+                if (player != ready) return;
+                if (!foreground || destroyed) { stopPlayer(); return; }
+                try { ready.setPlaybackParams(new android.media.PlaybackParams().setSpeed((float)speed).setPitch(1.0f)); ready.start(); notifyListeners("speechStatus", new JSObject().put("phase", "playing").put("source", source).put("cached", cached)); }
+                catch (RuntimeException invalid) { PluginCall pending = playerCall; playerCall = null; stopPlayer(); if (pending != null) pending.reject("生成的语音无法播放。", "PLAYBACK_FAILED"); }
+            });
+            next.setOnCompletionListener(ended -> {
+                if (player != ended) return;
+                PluginCall completed = playerCall; playerCall = null; stopPlayer();
+                notifyListeners("speechStatus", new JSObject().put("phase", "idle"));
+                if (completed != null) completed.resolve(new JSObject().put("cached", cached).put("source", source));
+            });
+            next.setOnErrorListener((failed, what, extra) -> {
+                if (player == failed) { PluginCall pending = playerCall; playerCall = null; stopPlayer(); if (pending != null) pending.reject("生成的语音无法播放。", "PLAYBACK_FAILED"); }
+                return true;
+            });
+            next.prepareAsync();
+        } catch (Exception failure) { if (playerCall == call) playerCall = null; stopPlayer(); call.reject("生成的语音无法播放。", "PLAYBACK_FAILED"); }
+    }
+    private void speakDevice(PluginCall call, int generation, double speed) {
         String text = call.getString("text");
         if (text == null || text.trim().isEmpty() || text.length() > 3000) {
             call.reject("朗读文字不能为空且不能超过 3000 字符。", "INVALID_ARGUMENT"); return;
         }
         main.post(() -> {
+            if (generation != speechGeneration.get() || pendingAiCall != call) return;
+            pendingAiCall = null; deviceSpeechSpeed = speed;
             if (!foreground || destroyed) { call.reject("请回到应用后播放。", "APP_NOT_ACTIVE"); return; }
             if (recorder != null || permissionPending) { call.reject("请先结束录音。", "AUDIO_BUSY"); return; }
             stopPlayer();
             stopSpeechInternal("AUDIO_INTERRUPTED", "已开始新的朗读。");
             speechCall = call;
+            notifyListeners("speechStatus", new JSObject().put("phase", "playing").put("source", "device"));
             speechText = text;
             if (ttsReady) { speakReady(); return; }
             main.postDelayed(speechDeadline, 10000);
@@ -211,7 +453,7 @@ public class LingoNativePlugin extends Plugin {
         });
         Bundle params = new Bundle();
         params.putString(TextToSpeech.Engine.KEY_FEATURE_EMBEDDED_SYNTHESIS, "true");
-        tts.setSpeechRate(0.85f);
+        tts.setSpeechRate((float)deviceSpeechSpeed);
         if (tts.speak(speechText, TextToSpeech.QUEUE_FLUSH, params, id) != TextToSpeech.SUCCESS) {
             stopSpeechInternal("SPEECH_FAILED", "离线朗读失败。"); return;
         }
@@ -237,13 +479,15 @@ public class LingoNativePlugin extends Plugin {
     }
 
     @PluginMethod public void stopSpeech(PluginCall call) {
-        main.post(() -> { stopSpeechInternal("AUDIO_INTERRUPTED", "朗读已停止。"); call.resolve(); });
+        main.post(() -> { cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "朗读已停止。"); stopPlayer(); call.resolve(); });
     }
 
     @PluginMethod public void startRecording(PluginCall call) {
         try { NativeGuards.learnerId(call.getString("learnerId")); }
         catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); return; }
         main.post(() -> {
+            cancelCourseGeneration();
+            cancelAiSpeech(); stopPlayer(); stopSpeechInternal("AUDIO_INTERRUPTED", "开始录音。");
             if (destroyed || !foreground) { call.reject("请回到应用后录音。", "APP_NOT_ACTIVE"); return; }
             if (recorder != null || recordingReady != null || recordingTemp != null || permissionPending) {
                 call.reject("请先保存或取消当前录音。", "AUDIO_BUSY"); return;
@@ -391,6 +635,7 @@ public class LingoNativePlugin extends Plugin {
     @PluginMethod public void playRecording(PluginCall call) {
         String path = call.getString("path");
         main.post(() -> {
+            cancelAiSpeech();
             if (!foreground || destroyed) { call.reject("请回到应用后播放。", "APP_NOT_ACTIVE"); return; }
             if (recorder != null || permissionPending) { call.reject("请先结束录音。", "AUDIO_BUSY"); return; }
             try {
@@ -478,7 +723,7 @@ public class LingoNativePlugin extends Plugin {
     }
 
     @PluginMethod public void stopAudio(PluginCall call) {
-        main.post(() -> { stopSpeechInternal("AUDIO_INTERRUPTED", "音频已停止。"); stopPlayer(); finishRecording("user"); call.resolve(); });
+        main.post(() -> { cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "音频已停止。"); stopPlayer(); finishRecording("user"); call.resolve(); });
     }
 
     private AudioAttributes audioAttributes(boolean recording) {
@@ -528,14 +773,20 @@ public class LingoNativePlugin extends Plugin {
     @Override protected void handleOnResume() { foreground = true; }
     @Override protected void handleOnPause() {
         foreground = false;
+        cancelCourseGeneration();
+        cancelAiSpeech();
         stopSpeechInternal("AUDIO_INTERRUPTED", "应用已进入后台。"); stopPlayer(); finishRecording("background");
     }
     @Override protected void handleOnDestroy() {
         destroyed = true;
+        cancelCourseGeneration();
+        cancelAiSpeech();
         stopSpeechInternal("AUDIO_INTERRUPTED", "应用已关闭。"); stopPlayer(); finishRecording("background");
         if (tts != null) { tts.shutdown(); tts = null; }
         getContext().unregisterReceiver(audioDisconnected);
         storage.execute(() -> stateStore.close());
         storage.shutdown();
+        speechWorker.shutdown();
+        courseWorker.shutdown();
     }
 }

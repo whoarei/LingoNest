@@ -22,6 +22,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Web build failed.' }
   & npx.cmd cap sync android
   if ($LASTEXITCODE -ne 0) { throw 'Capacitor synchronization failed.' }
+  & node scripts/assert-no-bundled-audio.mjs android/app/src/main/assets
+  if ($LASTEXITCODE -ne 0) { throw 'Pre-generated audio found in Android assets.' }
   Push-Location (Join-Path $projectRoot 'android')
   try {
     $variant = if ($Release) { 'release' } else { 'debug' }

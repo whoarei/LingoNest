@@ -1,4 +1,5 @@
 import type { Ref, ComputedRef } from "vue";
+import type { SpeechController } from "./useSpeech";
 import type {
   Exercise,
   StageId,
@@ -40,12 +41,19 @@ export interface HistoryItem extends EvaluatedAttempt {
   exercise: Exercise;
 }
 export interface LearningUI {
+  speech: SpeechController;
   ready: Ref<boolean>;
   busy: Ref<boolean>;
   error: Ref<string>;
   notice: Ref<string>;
   view: Ref<
-    "home" | "lesson" | "practice" | "review" | "progress" | "settings"
+    | "home"
+    | "lesson"
+    | "practice"
+    | "review"
+    | "progress"
+    | "settings"
+    | "parent"
   >;
   learners: Ref<Learner[]>;
   learner: ComputedRef<Learner | null>;

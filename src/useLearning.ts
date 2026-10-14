@@ -27,6 +27,7 @@ import {
   type PracticeRun,
 } from "./storage";
 import { isAndroid, native } from "./native";
+import { useSpeech } from "./useSpeech";
 
 const makeId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -37,6 +38,7 @@ const localDate = (date: Date) =>
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function useLearning(): LearningUI {
+  const speech = useSpeech();
   const repository = new LocalRepository();
   const state = ref<LocalState>(emptyState());
   const ready = ref(false),
@@ -266,8 +268,7 @@ export function useLearning(): LearningUI {
       view.value = "home";
   }
   async function stopSpeech() {
-    if (isAndroid) await operation(() => native.stopSpeech());
-    else window.speechSynthesis?.cancel();
+    await operation(() => speech.stop());
   }
   async function clearRun() {
     if (isAndroid)
@@ -562,24 +563,7 @@ export function useLearning(): LearningUI {
       if (!(await exposure(ex.exposureTargets))) return;
     }
     await operation(async () => {
-      if (isAndroid) await native.speak({ text });
-      else {
-        if (!window.speechSynthesis)
-          throw new Error("此浏览器不支持朗读，请使用 Android 版本。");
-        const voice = speechSynthesis
-          .getVoices()
-          .find((v) => v.lang.startsWith("en") && v.localService);
-        if (!voice)
-          throw new Error(
-            "设备没有可用的离线英语音色。请安装英语语音包，或请家长朗读。",
-          );
-        speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.voice = voice;
-        utterance.lang = voice.lang;
-        utterance.rate = 0.85;
-        speechSynthesis.speak(utterance);
-      }
+      await speech.play(text);
     });
   }
   async function toggleRecording() {
@@ -705,6 +689,7 @@ export function useLearning(): LearningUI {
       }
     });
   return {
+    speech,
     ready,
     busy,
     error,

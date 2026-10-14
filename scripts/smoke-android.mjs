@@ -118,7 +118,7 @@ try {
   await click('暂时退出');
   await click('保存进度并退出');
   await until(`!document.querySelector('.busy-indicator')`);
-  await evaluate(`document.querySelector('[aria-label="设置与家长入口"]').click()`);
+  await evaluate(`document.querySelector('[aria-label="切换到家长空间"]').click()`);
   await until(`!!document.querySelector('#parent-answer')`);
   await evaluate(`(()=>{const e=document.querySelector('#parent-answer');e.value='12';e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click('进入家长空间');

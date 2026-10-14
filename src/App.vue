@@ -7,6 +7,7 @@ import type {
 } from "../packages/learning-engine/src/model";
 import type { LearningUI } from "./domain";
 import Icon from "./components/AppIcon.vue";
+import SpeechSettings from "./components/SpeechSettings.vue";
 import "./style.css";
 
 const app = reactive(useLearning());
@@ -22,6 +23,8 @@ const listened = ref<string[]>([]);
 const deleting = ref(false);
 const deleteName = ref("");
 const exitPractice = ref(false);
+const exitDestination = ref<"home" | "parent">("home");
+const learningView = ref<LearningUI["view"]["value"]>("home");
 const nav = [
   { id: "home", label: "小窝", icon: "home" },
   { id: "lesson", label: "课文", icon: "book" },
@@ -141,10 +144,18 @@ watch(
   },
 );
 function navigate(view: LearningUI["view"]["value"]) {
+  if (view === "parent" && app.view !== "parent")
+    learningView.value = app.view === "practice" ? "home" : app.view;
   void app.stopSpeech();
   if (view === "lesson") void app.openLesson();
   else app.view = view;
   window.scrollTo({ top: 0, behavior: "instant" });
+}
+function switchSpace() {
+  if (app.view === "practice") {
+    exitDestination.value = "parent";
+    exitPractice.value = true;
+  } else navigate(app.view === "parent" ? learningView.value : "parent");
 }
 async function createProfile() {
   if (!nickname.value.trim() || app.busy) return;
@@ -182,7 +193,8 @@ async function hearReview(id: string, path: string) {
 async function leavePractice() {
   if (app.recording) await app.toggleRecording();
   exitPractice.value = false;
-  navigate("home");
+  navigate(exitDestination.value);
+  exitDestination.value = "home";
 }
 async function removeProfile() {
   if (deleteName.value !== app.learner?.nickname) return;
@@ -215,19 +227,25 @@ function shortDate(value: string) {
 <template>
   <div class="app-shell">
     <header class="topbar">
-      <button
-        class="brand"
-        aria-label="英语小窝首页"
-        @click="
-          app.view === 'practice' ? (exitPractice = true) : navigate('home')
-        "
-      >
-        <span class="brand-symbol"><Icon name="leaf" :size="24" /></span
+      <div class="brand">
+        <button
+          class="brand-symbol"
+          :aria-label="
+            app.view === 'parent' ? '切换到学习空间' : '切换到家长空间'
+          "
+          :title="
+            app.view === 'parent' ? '切换到学习空间' : '切换到家长空间'
+          "
+          :disabled="!app.ready || !app.learner || app.busy"
+          @click="switchSpace"
+        >
+          <Icon :name="app.view === 'parent' ? 'shield' : 'leaf'" :size="24" />
+        </button
         ><span
           ><strong>LingoNest<span class="brand-dot">.</span></strong
-          ><small>英语小窝</small></span
+          ><small>{{ app.view === "parent" ? "家长空间" : "英语小窝" }}</small></span
         >
-      </button>
+      </div>
       <div class="topbar-actions">
         <span v-if="app.learner" class="profile-chip"
           ><span class="avatar-mini">{{
@@ -236,7 +254,7 @@ function shortDate(value: string) {
           >{{ app.learner.nickname }}</span
         ><button
           class="icon-button"
-          aria-label="设置与家长入口"
+          aria-label="设置"
           :disabled="app.view === 'practice'"
           @click="navigate('settings')"
         >
@@ -259,6 +277,36 @@ function shortDate(value: string) {
     </div>
     <div v-if="app.busy" class="busy-indicator" role="status">
       <span class="spinner" />正在保存，请稍候…
+    </div>
+    <div
+      v-if="app.speech.phase !== 'idle'"
+      class="speech-status-bar"
+      role="status"
+    >
+      <span>{{
+        app.speech.phase === "generating"
+          ? "正在生成 AI 语音…"
+          : app.speech.lastSource === "course"
+            ? "正在播放课程音频"
+            : app.speech.lastCached
+              ? "正在播放本地缓存语音"
+              : "正在朗读…"
+      }}</span
+      ><button class="text-button" @click="app.stopSpeech">
+        {{ app.speech.phase === "generating" ? "取消" : "停止" }}
+      </button>
+    </div>
+    <div
+      v-if="app.speech.courseGenerating"
+      class="speech-status-bar course-generation-bar"
+      role="status"
+    >
+      <span
+        >正在生成课程音频 {{ app.speech.courseProgress.completed }} /
+        {{ app.speech.courseProgress.total }}</span
+      ><button class="text-button" @click="app.speech.cancelCourse">
+        暂停
+      </button>
     </div>
     <main v-if="!app.ready" class="loading-page">
       <span class="spinner large" />
@@ -448,7 +496,7 @@ function shortDate(value: string) {
               <Icon name="shield" :size="17" />给陪伴学习的大人
             </div>
             <p>练习完成和真正掌握分别记录。口语要听过录音，再由家长确认。</p>
-            <button class="text-button" @click="navigate('settings')">
+            <button class="text-button" @click="navigate('parent')">
               进入家长空间 <Icon name="arrow" :size="17" />
             </button>
           </section>
@@ -535,11 +583,15 @@ function shortDate(value: string) {
         </ol>
       </section>
       <p class="quiet-note device-note">
-        <Icon
-          name="volume"
-          :size="15"
-        />播放使用设备音色，离线播放需要设备已安装英语语音包。
+        <Icon name="volume" :size="15" />{{ app.speech.label }}
       </p>
+      <button
+        v-if="app.speech.phase !== 'idle'"
+        class="button secondary compact"
+        @click="app.stopSpeech"
+      >
+        {{ app.speech.phase === "generating" ? "取消语音生成" : "停止播放" }}
+      </button>
       <section v-if="!app.confirmed" class="confirm-course">
         <label class="checkbox-label"
           ><input v-model="checkedTranscript" type="checkbox" /><span
@@ -610,7 +662,13 @@ function shortDate(value: string) {
             :size="17"
           />{{ exercise.title }}</span
         >
-        <h1>{{ exercise.instruction }}</h1>
+        <h1>
+          {{
+            exercise.stageId === "S6" && exercise.speakText
+              ? "先播放题目音频，再听写完整句子。"
+              : exercise.instruction
+          }}
+        </h1>
         <p
           class="exercise-prompt"
           :class="{ 'english-text': /^[A-Za-z]/.test(exercise.prompt) }"
@@ -629,7 +687,7 @@ function shortDate(value: string) {
             ><strong>{{
               exercise.stageId === "S4" ? "听一遍示范" : "播放题目音频"
             }}</strong
-            ><small>设备音色 · 需已安装英语语音包</small></span
+            ><small>{{ app.speech.label }}</small></span
           >
         </button>
         <div v-if="exercise.kind === 'choice'" class="choice-options">
@@ -937,7 +995,7 @@ function shortDate(value: string) {
           <h3>还有 {{ app.stats.pendingReviews }} 条口语待确认</h3>
           <p>等待评价不会当成答错，邀请家长听听录音吧。</p>
         </div>
-        <button class="button secondary compact" @click="navigate('settings')">
+        <button class="button secondary compact" @click="navigate('parent')">
           去确认
         </button>
       </section>
@@ -1069,7 +1127,7 @@ function shortDate(value: string) {
         <div>
           <span class="eyebrow">A SAFE LITTLE NEST</span>
           <h1>小窝设置</h1>
-          <p>档案、口语确认和保存在本机的学习记录。</p>
+          <p>管理学习档案、语音模型与课程音频。</p>
         </div>
       </section>
       <section class="section-panel">
@@ -1123,12 +1181,32 @@ function shortDate(value: string) {
           </div>
         </form>
       </section>
+      <SpeechSettings :speech="app.speech" />
+      <section class="storage-note">
+        <Icon name="shield" :size="21" />
+        <div>
+          <strong>{{ app.storageLabel }}</strong>
+          <p>
+            朗读方式、模型、音色和语速可在此设置。录音只会在你点击开始后采集。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <main v-else-if="app.view === 'parent'" class="page parent-page">
+      <section class="page-intro">
+        <div>
+          <span class="eyebrow">GROW TOGETHER</span>
+          <h1>家长空间</h1>
+          <p>陪孩子确认每一次真实表达。单击左上角图标可返回学习空间。</p>
+        </div>
+      </section>
       <section class="section-panel parent-space">
         <div class="section-heading">
           <div class="heading-with-icon">
             <span class="circle-icon"><Icon name="shield" :size="23" /></span>
             <div>
-              <h2>家长空间</h2>
+              <h2>家长确认</h2>
               <p>陪孩子确认每一次真实表达。</p>
             </div>
           </div>
@@ -1159,8 +1237,8 @@ function shortDate(value: string) {
           </div>
           <small>这一步用于防止误触，不是身份认证。</small>
         </form>
-        <template v-else
-          ><div class="parent-heading">
+        <template v-else>
+          <div class="parent-heading">
             <h3>
               待确认的口语 <span>{{ app.pending.length }}</span>
             </h3>
@@ -1237,13 +1315,6 @@ function shortDate(value: string) {
           </div></template
         >
       </section>
-      <section class="storage-note">
-        <Icon name="shield" :size="21" />
-        <div>
-          <strong>{{ app.storageLabel }}</strong>
-          <p>设备朗读需要可用的英语音色。录音只会在你点击开始后采集。</p>
-        </div>
-      </section>
     </main>
 
     <nav
@@ -1291,14 +1362,22 @@ function shortDate(value: string) {
         <p>已经提交的作答会保留。未提交的题目不会被记为完成或答错。</p>
         <p v-if="app.recording" class="inline-note">退出时会先结束当前录音。</p>
         <div class="modal-actions">
-          <button class="button secondary" @click="exitPractice = false">
+          <button
+            class="button secondary"
+            @click="
+              exitPractice = false;
+              exitDestination = 'home';
+            "
+          >
             继续练习</button
           ><button
             class="button primary"
             :disabled="app.busy"
             @click="leavePractice"
           >
-            保存进度并退出
+            {{
+              exitDestination === "parent" ? "保存进度并切换" : "保存进度并退出"
+            }}
           </button>
         </div>
       </section>
