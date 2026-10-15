@@ -3411,6 +3411,108 @@ h1 {
   flex-wrap: wrap;
   gap: 8px;
 }
+.vocabulary-list {
+  margin: 18px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+.vocabulary-count {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.course-word.vocabulary-item {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.vocabulary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.course-word.vocabulary-item .vocabulary-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  min-height: 44px;
+  margin: 0;
+  cursor: pointer;
+}
+.vocabulary-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px 0;
+  text-align: left;
+  background: transparent;
+}
+.vocabulary-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.vocabulary-copy strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #293e33;
+}
+.vocabulary-copy > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.vocabulary-copy > .vocabulary-missing {
+  color: #a46635;
+}
+.unselected .vocabulary-copy {
+  opacity: 0.55;
+}
+.vocabulary-toggle-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--green);
+}
+.vocabulary-toggle > svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.vocabulary-item.editing .vocabulary-toggle > svg {
+  transform: rotate(90deg);
+}
+.vocabulary-editor {
+  padding: 4px 12px 12px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: #f6f8ef;
+}
+.vocabulary-origin {
+  display: block;
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.vocabulary-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
 .course-source-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

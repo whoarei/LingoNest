@@ -39,6 +39,7 @@ import Icon from "./AppIcon.vue";
 import CourseAudioPanel from "./CourseAudioPanel.vue";
 import SourceImages from "./SourceImages.vue";
 import SwipeCourseRow from "./SwipeCourseRow.vue";
+import VocabularyList from "./VocabularyList.vue";
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
   active: boolean;
@@ -67,6 +68,7 @@ const job = ref(false),
   reviewed = ref(false),
   recognizedText = ref("");
 const recognizedMetadata = ref({ title: "", subtitle: "" });
+const vocabularyList = ref<InstanceType<typeof VocabularyList> | null>(null);
 const checkedOriginal = ref(false);
 watch(
   () => [record.value.title, record.value.subtitle, record.value.sourceText],
@@ -387,6 +389,7 @@ async function confirmWords() {
       words.some((word) => !word.term.trim() || !word.meaning.trim())
     ) {
       error.value = "请选择重点词汇，并补齐选中词汇的词条和释义。";
+      await vocabularyList.value?.focusIncomplete();
       return;
     }
     const next = clone(record.value);
@@ -801,69 +804,7 @@ async function backTo(status: "source" | "vocabulary") {
             >
               识别教材词汇表
             </button>
-            <article
-              v-for="(word, index) in record.vocabulary"
-              :key="index"
-              class="course-word"
-            >
-              <label class="checkbox-label"
-                ><input v-model="word.selected" type="checkbox" /><span
-                  >纳入重点词汇 {{ index + 1 }}</span
-                ><span class="tag neutral">{{
-                  word.origin === "photo"
-                    ? "教材词表"
-                    : word.origin === "auto"
-                      ? "应用建议"
-                      : "手动补充"
-                }}</span></label
-              >
-              <div class="content-config-grid">
-                <div>
-                  <label :for="`word-term-${index}`">词条 {{ index + 1 }}</label
-                  ><input
-                    :id="`word-term-${index}`"
-                    v-model="word.term"
-                    maxlength="100"
-                  />
-                </div>
-                <div>
-                  <label :for="`word-meaning-${index}`"
-                    >释义 {{ index + 1 }}</label
-                  ><input
-                    :id="`word-meaning-${index}`"
-                    v-model="word.meaning"
-                    maxlength="300"
-                  />
-                </div>
-              </div>
-              <label :for="`word-example-${index}`"
-                >例句 {{ index + 1 }}（可选）</label
-              ><input
-                :id="`word-example-${index}`"
-                v-model="word.example"
-                maxlength="1000"
-              /><button
-                class="text-button danger-text"
-                @click="record.vocabulary.splice(index, 1)"
-              >
-                删除词条 {{ index + 1 }}
-              </button>
-            </article>
-            <button
-              class="text-button"
-              :disabled="record.vocabulary.length >= 80"
-              @click="
-                record.vocabulary.push({
-                  term: '',
-                  meaning: '',
-                  example: '',
-                  selected: true,
-                  origin: 'manual',
-                })
-              "
-            >
-              <Icon name="plus" :size="16" />补充词汇
-            </button>
+            <VocabularyList ref="vocabularyList" v-model="record.vocabulary" />
             <div class="speech-actions">
               <button
                 class="button primary compact"

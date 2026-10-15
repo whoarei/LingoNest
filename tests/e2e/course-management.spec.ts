@@ -99,6 +99,7 @@ test("typed article, automatic vocabulary, review and assignment create a second
     .getByRole("button", { name: "应用生成重点词汇", exact: true })
     .click();
   await adult(page);
+  await page.getByRole("button", { name: "编辑词条 1：family", exact: true }).click();
   await expect(page.getByLabel("词条 1", { exact: true })).toHaveValue(
     "family",
   );
@@ -113,6 +114,7 @@ test("typed article, automatic vocabulary, review and assignment create a second
     .locator(".course-list button")
     .filter({ hasText: "My Family" })
     .click();
+  await page.getByRole("button", { name: "编辑词条 1：family", exact: true }).click();
   await expect(page.getByLabel("释义 1", { exact: true })).toHaveValue(
     "家人、家庭",
   );
@@ -227,6 +229,62 @@ test("photographed original is corrected before vocabulary, photo and automatic 
   expect(
     (await state(page)).courses[0].images.map((image: any) => image.rotation),
   ).toEqual([0, 90]);
+});
+
+test("compact vocabulary preserves selection and edits, adds and removes entries, and opens incomplete words", async ({ page }) => {
+  await boot(page);
+  await newDraft(page);
+  await page.getByLabel("文章或课文原文", { exact: true }).fill("I love my family.");
+  await original(page);
+  await page.getByRole("button", { name: "选择词汇表图片", exact: true }).click();
+  await page.evaluate(() => {
+    const terms = ["family", "teacher", "mother", "father", "sister", "brother", "school", "home", "book", "pencil", "garden", "tree", "flower", "bird", "cat", "dog", "apple", "orange", "water", "milk", "bread", "friend", "student", "classroom"];
+    (window as any).__vocabularyEntries = terms.map((term, index) => ({
+      term, meaning: index === 2 ? "" : `词义 ${index + 1}`, example: "",
+    }));
+  });
+  await page.getByRole("button", { name: "识别教材词汇表", exact: true }).click();
+  await expect(page.locator(".vocabulary-item")).toHaveCount(24);
+  await expect(page.locator(".vocabulary-editor")).toHaveCount(0);
+  await expect(page.locator(".vocabulary-count")).toContainText("已选 24 / 24");
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "artifacts/screenshots/vocabulary-compact-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "编辑词条 1：family", exact: true }).click();
+  await page.getByLabel("释义 1", { exact: true }).fill("家人、家庭");
+  await page.getByLabel("例句 1（可选）", { exact: true }).fill("I love my family.");
+  await page.getByRole("button", { name: "编辑词条 2：teacher", exact: true }).click();
+  await expect(page.getByLabel("词条 1", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".vocabulary-editor")).toHaveCount(1);
+  await page.getByRole("button", { name: "删除词条 2", exact: true }).click();
+  await page.getByLabel("纳入重点词汇 1", { exact: true }).uncheck();
+  await expect(page.locator(".vocabulary-count")).toContainText("已选 22 / 23");
+  await page.getByRole("button", { name: "补充词汇", exact: true }).click();
+  await expect(page.getByLabel("词条 24", { exact: true })).toBeFocused();
+  await page.getByLabel("词条 24", { exact: true }).fill("notebook");
+  await page.getByLabel("释义 24", { exact: true }).fill("笔记本");
+  await page.getByRole("button", { name: "确认词汇，继续生成课程", exact: true }).click();
+  await expect(page.getByLabel("释义 2", { exact: true })).toBeFocused();
+  await page.getByLabel("释义 2", { exact: true }).fill("妈妈");
+  await page.screenshot({ path: "artifacts/screenshots/vocabulary-editor-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(page.locator(".vocabulary-editor")).toHaveCount(0);
+  await page.getByRole("button", { name: "保存词汇草稿", exact: true }).click();
+  const saved = (await state(page)).courses[0].vocabulary;
+  expect(saved).toHaveLength(24);
+  expect(saved[0]).toMatchObject({ term: "family", meaning: "家人、家庭", example: "I love my family.", selected: false, origin: "photo" });
+  expect(saved[1]).toMatchObject({ term: "mother", meaning: "妈妈", selected: true });
+  expect(saved[23]).toMatchObject({ term: "notebook", meaning: "笔记本", origin: "manual" });
+  await page.reload();
+  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
+  await page.getByRole("button", { name: "课程", exact: true }).click();
+  await openCourse(page, "My Family");
+  await expect(page.locator(".vocabulary-editor")).toHaveCount(0);
+  await expect(page.getByLabel("纳入重点词汇 1", { exact: true })).not.toBeChecked();
+  expect((await state(page)).courses[0].vocabulary).toEqual(saved);
 });
 
 test("OCR fills blank metadata, saves edits and requires confirmation of the final fields", async ({ page }) => {

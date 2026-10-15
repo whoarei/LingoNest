@@ -66,7 +66,7 @@ export const contentNative = {
     if (prompt === "recognition-vocabulary")
       return {
         text: JSON.stringify({
-          vocabulary: [
+          vocabulary: window.__vocabularyEntries ?? [
             { term: "family", meaning: "家庭", example: "" },
             { term: "teacher", meaning: "老师", example: "" },
           ],
