@@ -53,7 +53,7 @@ async function original(page: Page) {
     page.getByRole("heading", { name: "整理并确认重点词汇", exact: true }),
   ).toBeVisible();
 }
-async function publish(page: Page) {
+async function prepareReview(page: Page) {
   await page
     .getByRole("button", { name: "确认词汇，继续生成课程", exact: true })
     .click();
@@ -65,6 +65,9 @@ async function publish(page: Page) {
   await expect(
     page.getByRole("heading", { name: "审核学习内容", exact: true }),
   ).toBeVisible();
+}
+async function publish(page: Page) {
+  await prepareReview(page);
   await page
     .getByRole("button", { name: "审核通过，启用课程", exact: true })
     .isDisabled()
@@ -229,6 +232,72 @@ test("photographed original is corrected before vocabulary, photo and automatic 
   expect(
     (await state(page)).courses[0].images.map((image: any) => image.rotation),
   ).toEqual([0, 90]);
+});
+
+test("course review presents readable sections and preserves edits and approval safeguards", async ({ page }) => {
+  await boot(page);
+  await newDraft(page);
+  await page.getByLabel("文章或课文原文", { exact: true }).fill("I love my family.\nMy mother is a teacher.");
+  await original(page);
+  await page.getByRole("button", { name: "应用生成重点词汇", exact: true }).click();
+  await adult(page);
+  await prepareReview(page);
+  const review = page.locator(".course-review");
+  const approval = page.getByLabel("已核对释义、重点词汇、题目和答案，确认可以交给孩子学习。");
+  const publishButton = page.getByRole("button", { name: "审核通过，启用课程", exact: true });
+  await expect(review.locator("textarea,input,select")).toHaveCount(0);
+  await expect(review.locator(".course-review-card")).toHaveCount(2);
+  await expect(publishButton).toBeDisabled();
+  await review.locator(".course-review-vocabulary summary").click();
+  await expect(review.locator(".course-review-word-chips")).toContainText("family");
+  await review.locator(".course-review-vocabulary summary").click();
+  await page.screenshot({ path: "artifacts/screenshots/course-review-reading-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "编辑第 1 段释义", exact: true }).click();
+  await page.getByLabel("第 1 段释义", { exact: true }).fill("我爱我的家人。");
+  await page.getByRole("button", { name: "完成编辑", exact: true }).click();
+  await expect(review.locator(".course-review-translation").first()).toContainText("我爱我的家人。");
+  await page.getByRole("button", { name: "理解题", exact: true }).click();
+  await expect(review.locator(".course-review-options .correct")).toContainText("老师");
+  await page.screenshot({ path: "artifacts/screenshots/course-review-question-mobile.png", fullPage: true });
+  await approval.check();
+  await page.getByRole("button", { name: "编辑理解题 1", exact: true }).click();
+  await page.getByLabel("问题 1", { exact: true }).fill("妈妈做什么工作？");
+  await expect(approval).not.toBeChecked();
+  await expect(publishButton).toBeDisabled();
+  await page.getByLabel("选项 2", { exact: true }).fill("工程师");
+  await page.getByLabel("正确选项 1", { exact: true }).selectOption("1");
+  await page.getByLabel("解释 1", { exact: true }).fill("测试人工修改答案。");
+  await page.getByRole("button", { name: "完成编辑", exact: true }).click();
+  await expect(review.locator(".course-review-options .correct")).toContainText("工程师");
+  await page.getByRole("button", { name: "情境应用", exact: true }).click();
+  await page.getByRole("button", { name: "编辑情境应用 1", exact: true }).click();
+  await page.getByLabel("应用任务 1", { exact: true }).fill("用 I love 表达你爱自己的学校。");
+  await page.getByLabel("可接受答案 1（每行一个）", { exact: true }).fill("I love my school.\nI love our school.");
+  await page.getByLabel("应用提示 1", { exact: true }).fill("注意学校的英文表达。");
+  await page.getByRole("button", { name: "完成编辑", exact: true }).click();
+  await expect(review.locator(".course-review-answers p")).toHaveCount(2);
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.screenshot({ path: "artifacts/screenshots/course-review-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "artifacts/screenshots/course-review-application-mobile.png", fullPage: true });
+  await expect.poll(async () => (await state(page)).courses[0].recipe.applications[0].answers.length).toBe(2);
+  const saved = (await state(page)).courses[0];
+  expect(saved.sourceText).toBe("I love my family.\nMy mother is a teacher.");
+  expect(saved.recipe.translations[0]).toBe("我爱我的家人。");
+  expect(saved.recipe.comprehension[0]).toMatchObject({ question: "妈妈做什么工作？", answerIndex: 1 });
+  await page.reload();
+  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
+  await page.getByRole("button", { name: "课程", exact: true }).click();
+  await openCourse(page, "My Family");
+  await expect(review.locator(".course-review-translation").first()).toContainText("我爱我的家人。");
+  await page.getByRole("button", { name: "理解题", exact: true }).click();
+  await expect(review.locator(".course-review-options .correct")).toContainText("工程师");
+  await expect(approval).not.toBeChecked();
+  await page.locator(".course-review-preview summary").click();
+  await expect(page.locator(".course-review-preview")).toContainText("I love our school.");
 });
 
 test("compact vocabulary preserves selection and edits, adds and removes entries, and opens incomplete words", async ({ page }) => {

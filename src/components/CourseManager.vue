@@ -40,6 +40,7 @@ import CourseAudioPanel from "./CourseAudioPanel.vue";
 import SourceImages from "./SourceImages.vue";
 import SwipeCourseRow from "./SwipeCourseRow.vue";
 import VocabularyList from "./VocabularyList.vue";
+import CourseReview from "./CourseReview.vue";
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
   active: boolean;
@@ -70,6 +71,11 @@ const job = ref(false),
 const recognizedMetadata = ref({ title: "", subtitle: "" });
 const vocabularyList = ref<InstanceType<typeof VocabularyList> | null>(null);
 const checkedOriginal = ref(false);
+watch(
+  () => record.value.recipe,
+  () => { reviewed.value = false; },
+  { deep: true },
+);
 watch(
   () => [record.value.title, record.value.subtitle, record.value.sourceText],
   () => { checkedOriginal.value = false; },
@@ -846,97 +852,12 @@ async function backTo(status: "source" | "vocabulary") {
             </div>
           </template>
           <template v-else-if="record.status === 'review' && record.recipe">
-            <h2>审核学习内容</h2>
-            <p class="inline-note">
-              以下释义、问题和解释为应用生成内容，请检查准确性。确认后的原文保持原样。
-            </p>
-            <article
-              v-for="(turn, index) in sourceTurns(record.sourceText)"
-              :key="turn.id"
-              class="course-word"
-            >
-              <p lang="en">{{ turn.text }}</p>
-              <label :for="`translation-${index}`"
-                >第 {{ index + 1 }} 段释义</label
-              ><textarea
-                :id="`translation-${index}`"
-                v-model="record.recipe.translations[index]"
-                rows="2"
-                maxlength="2000"
-              />
-            </article>
-            <article
-              v-for="(item, index) in record.recipe.comprehension"
-              :key="index"
-              class="course-word"
-            >
-              <h3>理解题 {{ index + 1 }}</h3>
-              <label :for="`question-${index}`">问题 {{ index + 1 }}</label
-              ><textarea
-                :id="`question-${index}`"
-                v-model="item.question"
-                rows="2"
-                maxlength="1000"
-              />
-              <div v-for="(_, option) in item.options" :key="option">
-                <label :for="`option-${index}-${option}`"
-                  >选项 {{ option + 1 }}</label
-                ><input
-                  :id="`option-${index}-${option}`"
-                  v-model="item.options[option]"
-                  maxlength="500"
-                />
-              </div>
-              <label :for="`correct-${index}`">正确选项 {{ index + 1 }}</label
-              ><select
-                :id="`correct-${index}`"
-                v-model.number="item.answerIndex"
-              >
-                <option v-for="(option, i) in item.options" :key="i" :value="i">
-                  {{ i + 1 }}. {{ option }}
-                </option></select
-              ><label :for="`explanation-${index}`">解释 {{ index + 1 }}</label
-              ><textarea
-                :id="`explanation-${index}`"
-                v-model="item.explanation"
-                rows="2"
-                maxlength="1000"
-              />
-            </article>
-            <article
-              v-for="(item, index) in record.recipe.applications"
-              :key="index"
-              class="course-word"
-            >
-              <h3>情境应用 {{ index + 1 }}</h3>
-              <label :for="`application-${index}`"
-                >应用任务 {{ index + 1 }}</label
-              ><textarea
-                :id="`application-${index}`"
-                v-model="item.prompt"
-                rows="2"
-                maxlength="1000"
-              /><label :for="`answers-${index}`"
-                >可接受答案 {{ index + 1 }}（每行一个）</label
-              ><textarea
-                :id="`answers-${index}`"
-                :value="item.answers.join('\n')"
-                @input="
-                  item.answers = ($event.target as HTMLTextAreaElement).value
-                    .split('\n')
-                    .filter((answer) => answer.trim())
-                "
-                rows="2"
-              /><label :for="`application-hint-${index}`"
-                >应用提示 {{ index + 1 }}</label
-              ><textarea
-                :id="`application-hint-${index}`"
-                v-model="item.explanation"
-                rows="2"
-                maxlength="1000"
-              />
-            </article>
-            <details v-if="preview" class="parent-evidence">
+            <CourseReview
+              v-model="record.recipe"
+              :source-text="record.sourceText"
+              :vocabulary="record.vocabulary"
+            />
+            <details v-if="preview" class="parent-evidence course-review-preview">
               <summary>预览 {{ preview.exercises.length }} 道学习任务</summary>
               <article
                 v-for="exercise in preview.exercises"
@@ -969,23 +890,24 @@ async function backTo(status: "source" | "vocabulary") {
                 </p>
               </article>
             </details>
-            <label class="checkbox-label"
-              ><input v-model="reviewed" type="checkbox" /><span
-                >已核对释义、重点词汇、题目和答案，确认可以交给孩子学习。</span
-              ></label
-            >
-            <div class="speech-actions">
+            <div class="course-review-approval">
+              <div class="course-review-approval-heading">
+                <Icon name="shield" :size="20" />
+                <h3>准备交给孩子学习</h3>
+              </div>
+              <label class="checkbox-label">
+                <input v-model="reviewed" type="checkbox" />
+                <span>已核对释义、重点词汇、题目和答案，确认可以交给孩子学习。</span>
+              </label>
               <button
-                class="button primary compact"
+                class="button primary course-review-publish"
                 :disabled="!reviewed || !preview || app.busy"
                 @click="publish"
-              >
-                审核通过，启用课程</button
-              ><button class="button secondary compact" @click="generateCourse">
-                重新生成学习内容</button
-              ><button class="text-button" @click="backTo('vocabulary')">
-                返回重点词汇
-              </button>
+              >审核通过，启用课程 <Icon name="arrow" :size="17" /></button>
+              <div class="course-review-secondary-actions">
+                <button class="text-button" @click="generateCourse">重新生成学习内容</button>
+                <button class="text-button" @click="backTo('vocabulary')">返回重点词汇</button>
+              </div>
             </div>
           </template>
         </fieldset>
