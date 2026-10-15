@@ -15,6 +15,7 @@ import {
   courseStatusLabels,
   mergeVocabulary,
   modelVocabulary,
+  modelSource,
   newCourse,
   parseModelJSON,
   sourceTurns,
@@ -65,7 +66,12 @@ const job = ref(false),
   message = ref(""),
   reviewed = ref(false),
   recognizedText = ref("");
+const recognizedMetadata = ref({ title: "", subtitle: "" });
 const checkedOriginal = ref(false);
+watch(
+  () => [record.value.title, record.value.subtitle, record.value.sourceText],
+  () => { checkedOriginal.value = false; },
+);
 const removing = ref(false),
   listTab = ref<"active" | "deleted">("active"),
   swipeId = ref<string | null>(null),
@@ -147,6 +153,7 @@ async function select(id: string) {
   reviewed.value = false;
   checkedOriginal.value = false;
   recognizedText.value = "";
+  recognizedMetadata.value = { title: "", subtitle: "" };
   await nextTick();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -159,6 +166,9 @@ async function create() {
       courseId.value = next.id;
       error.value = "";
       message.value = "";
+      checkedOriginal.value = false;
+      recognizedText.value = "";
+      recognizedMetadata.value = { title: "", subtitle: "" };
       await nextTick();
       window.scrollTo({ top: 0, behavior: "instant" });
     }
@@ -317,16 +327,19 @@ async function recognize(vocabulary: boolean) {
           modelVocabulary(raw, "photo"),
         );
       else {
-        const result = parseModelJSON(raw) as { text?: unknown };
-        if (
-          !result ||
-          typeof result.text !== "string" ||
-          !result.text.trim() ||
-          result.text.length > 6000
-        )
-          throw new Error("识别结果为空或过长，请分批识别较短的课程。");
+        const result = modelSource(raw);
+        recognizedMetadata.value = {
+          title: result.title,
+          subtitle: result.subtitle,
+        };
+        if (!record.value.title.trim()) record.value.title = result.title;
+        if (!record.value.subtitle.trim()) record.value.subtitle = result.subtitle;
+        checkedOriginal.value = false;
         if (record.value.sourceText.trim()) recognizedText.value = result.text;
-        else record.value.sourceText = result.text;
+        else {
+          record.value.sourceText = result.text;
+          recognizedText.value = "";
+        }
       }
       await persist();
     }),
@@ -633,6 +646,17 @@ async function backTo(status: "source" | "vocabulary") {
               maxlength="100"
               placeholder="例如：My Family"
             />
+            <p
+              v-if="recognizedMetadata.title && recognizedMetadata.title !== record.title"
+              class="field-help"
+            >
+              图片识别标题：{{ recognizedMetadata.title }}
+              <button
+                type="button"
+                class="text-button"
+                @click="record.title = recognizedMetadata.title; checkedOriginal = false"
+              >采用识别标题</button>
+            </p>
             <label for="course-subtitle">教材或单元（可选）</label
             ><input
               id="course-subtitle"
@@ -640,6 +664,20 @@ async function backTo(status: "source" | "vocabulary") {
               maxlength="120"
               placeholder="例如：Unit 2 · Lesson 1"
             />
+            <p
+              v-if="recognizedMetadata.subtitle && recognizedMetadata.subtitle !== record.subtitle"
+              class="field-help"
+            >
+              图片识别教材或单元：{{ recognizedMetadata.subtitle }}
+              <button
+                type="button"
+                class="text-button"
+                @click="record.subtitle = recognizedMetadata.subtitle; checkedOriginal = false"
+              >采用识别教材或单元</button>
+            </p>
+            <p class="field-help">
+              识别后自动补全空白标题和教材信息，可直接修改。图片未提供的信息留空，请核对后再确认。
+            </p>
             <div class="speech-actions">
               <button
                 type="button"
@@ -680,6 +718,7 @@ async function backTo(status: "source" | "vocabulary") {
                 @click="
                   record.sourceText = recognizedText;
                   recognizedText = '';
+                  checkedOriginal = false;
                 "
               >
                 采用识别结果替换当前草稿</button
@@ -706,7 +745,7 @@ async function backTo(status: "source" | "vocabulary") {
             </p>
             <label class="checkbox-label"
               ><input v-model="checkedOriginal" type="checkbox" /><span
-                >已检查原文内容、角色与顺序，确认可以用于学习。</span
+                >已检查标题、教材或单元及原文内容、角色与顺序，确认可以用于学习。</span
               ></label
             >
             <div class="speech-actions">

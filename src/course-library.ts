@@ -156,6 +156,24 @@ export function parseModelJSON(raw: string): unknown {
     }
   }
 }
+export function modelSource(raw: string): {
+  text: string;
+  title: string;
+  subtitle: string;
+} {
+  const result = parseModelJSON(raw) as Record<string, unknown> | null;
+  if (!result || !text(result.text, 6000))
+    return fail("识别结果为空或过长，请分批识别较短的课程。");
+  const metadata = (value: unknown, max: number) =>
+    typeof value === "string" && value.length <= max
+      ? value.trim().replace(/\s+/g, " ")
+      : "";
+  return {
+    text: result.text,
+    title: metadata(result.title, 100),
+    subtitle: metadata(result.subtitle, 120),
+  };
+}
 export function validateVocabulary(
   value: unknown,
   draft = false,

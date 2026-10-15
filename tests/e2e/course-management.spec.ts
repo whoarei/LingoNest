@@ -43,7 +43,7 @@ async function back(page: Page) {
 }
 async function original(page: Page) {
   await page
-    .getByLabel("已检查原文内容、角色与顺序，确认可以用于学习。")
+    .getByLabel("已检查标题、教材或单元及原文内容、角色与顺序，确认可以用于学习。")
     .check();
   await page
     .getByRole("button", { name: "确认原文，整理重点词汇", exact: true })
@@ -195,7 +195,7 @@ test("photographed original is corrected before vocabulary, photo and automatic 
     /待校对/,
   );
   await page
-    .getByLabel("已检查原文内容、角色与顺序，确认可以用于学习。")
+    .getByLabel("已检查标题、教材或单元及原文内容、角色与顺序，确认可以用于学习。")
     .check();
   await page
     .getByRole("button", { name: "确认原文，整理重点词汇", exact: true })
@@ -227,6 +227,66 @@ test("photographed original is corrected before vocabulary, photo and automatic 
   expect(
     (await state(page)).courses[0].images.map((image: any) => image.rotation),
   ).toEqual([0, 90]);
+});
+
+test("OCR fills blank metadata, saves edits and requires confirmation of the final fields", async ({ page }) => {
+  await boot(page);
+  await newDraft(page);
+  const title = page.getByLabel("课程标题", { exact: true });
+  const subtitle = page.getByLabel("教材或单元（可选）", { exact: true });
+  await title.fill("");
+  await page.getByRole("button", { name: "选择课文图片", exact: true }).click();
+  await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
+  await adult(page);
+  await expect(title).toHaveValue("My Family");
+  await expect(subtitle).toHaveValue("Unit 2 · Lesson 1");
+  const confirm = page.getByRole("button", { name: "确认原文，整理重点词汇", exact: true });
+  const checked = page.getByLabel("已检查标题、教材或单元及原文内容、角色与顺序，确认可以用于学习。");
+  await expect(confirm).toBeDisabled();
+  await checked.check();
+  await subtitle.fill("English Book · Unit 2 · Lesson 1");
+  await expect(checked).not.toBeChecked();
+  await title.fill("My Family — 校对版");
+  await expect.poll(async () => (await state(page)).courses[0].subtitle).toBe("English Book · Unit 2 · Lesson 1");
+  await page.reload();
+  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
+  await page.getByRole("button", { name: "课程", exact: true }).click();
+  await openCourse(page, "My Family — 校对版");
+  await expect(title).toHaveValue("My Family — 校对版");
+  await expect(subtitle).toHaveValue("English Book · Unit 2 · Lesson 1");
+  await original(page);
+});
+
+test("OCR preserves existing metadata and offers explicit adoption without leaking suggestions to a new draft", async ({ page }) => {
+  await boot(page);
+  await newDraft(page);
+  const title = page.getByLabel("课程标题", { exact: true });
+  const subtitle = page.getByLabel("教材或单元（可选）", { exact: true });
+  await subtitle.fill("我的教材");
+  await page.getByRole("button", { name: "选择课文图片", exact: true }).click();
+  await page.evaluate(() => {
+    (window as any).__ocrMetadata = { title: "Recognized Lesson", subtitle: "Lesson 3" };
+  });
+  await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
+  await adult(page);
+  await expect(title).toHaveValue("My Family");
+  await expect(subtitle).toHaveValue("我的教材");
+  await expect(page.getByRole("button", { name: "采用识别标题", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "采用识别教材或单元", exact: true }).click();
+  await expect(subtitle).toHaveValue("Lesson 3");
+  await expect(title).toHaveValue("My Family");
+  await page.getByRole("button", { name: "返回课程列表", exact: true }).click();
+  await newDraft(page);
+  await expect(subtitle).toHaveValue("");
+  await expect(page.getByRole("button", { name: "采用识别标题", exact: true })).toHaveCount(0);
+  await title.fill("");
+  await page.getByRole("button", { name: "选择课文图片", exact: true }).click();
+  await page.evaluate(() => { (window as any).__ocrMetadata = {}; });
+  await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
+  await adult(page);
+  await expect(page.getByLabel("文章或课文原文", { exact: true })).toHaveValue(/I love my family/);
+  await expect(title).toHaveValue("");
+  await expect(subtitle).toHaveValue("");
 });
 
 test("multiline OCR fills the original, survives reload and requires adoption before replacing existing text", async ({ page }) => {

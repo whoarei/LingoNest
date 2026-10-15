@@ -4,6 +4,7 @@ import {
   newCourse,
   validateCourseRecord,
   modelVocabulary,
+  modelSource,
   parseModelJSON,
   sourceTurns,
   type CourseRecord,
@@ -57,6 +58,23 @@ export function sampleCourse(): CourseRecord {
   return record;
 }
 describe("multi-course creation and durable migration", () => {
+  it("extracts optional OCR metadata while accepting older text-only responses", () => {
+    const text = "Lesson 1\nA Puma at large\nPumas are large animals.";
+    expect(modelSource(JSON.stringify({ text, title: "  A Puma at large  ", subtitle: "Unit 1\nLesson 1" })))
+      .toEqual({ text, title: "A Puma at large", subtitle: "Unit 1 Lesson 1" });
+    expect(modelSource(JSON.stringify({ text }))).toEqual({ text, title: "", subtitle: "" });
+    expect(modelSource(JSON.stringify({ text, title: null, subtitle: 123 })))
+      .toEqual({ text, title: "", subtitle: "" });
+    expect(modelSource(JSON.stringify({ text, title: "x".repeat(101), subtitle: "x".repeat(121) })))
+      .toEqual({ text, title: "", subtitle: "" });
+  });
+
+  it("does not fill metadata from an unusable original recognition result", () => {
+    for (const text of [undefined, "", "   ", "x".repeat(6001)])
+      expect(() => modelSource(JSON.stringify({ text, title: "Title", subtitle: "Lesson 1" })))
+        .toThrow("识别结果为空或过长");
+  });
+
   it("preserves OCR paragraphs when a service returns literal control characters inside JSON strings", () => {
     const text = 'Lesson 1\nA Puma at large\n\nShe said, "Hello."\r\nOne\tTwo';
     const raw = JSON.stringify({ text }).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t");

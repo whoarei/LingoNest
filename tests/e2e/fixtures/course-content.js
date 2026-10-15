@@ -54,6 +54,10 @@ export const contentNative = {
     if (prompt === "recognition-text")
       return {
         text: JSON.stringify({
+          ...(window.__ocrMetadata ?? {
+            title: "My Family",
+            subtitle: "Unit 2 · Lesson 1",
+          }),
           text: window.__ocrUncertain
             ? "I love my [待校对].\nMy mother is a teacher."
             : "I love my family.\nMy mother is a teacher.",
