@@ -3371,17 +3371,31 @@ h1 {
 }
 .course-steps li {
   font-size: 11px;
+  padding: 0;
+  border-radius: 9px;
+}
+.course-steps button {
+  display: block;
+  min-height: 40px;
   padding: 8px 11px;
   border-radius: 9px;
   background: #f1f3e9;
   color: var(--muted);
+  font: inherit;
 }
-.course-steps li.active {
+.course-steps button:disabled { opacity: 0.45; }
+.course-steps li.active button {
   background: var(--green);
   color: #fff;
 }
-.course-steps li.completed {
+.course-steps li.completed:not(.active) button {
   color: var(--green);
+}
+.course-step-note {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  background: #f4f6ed;
+  border-radius: 9px;
 }
 .course-manager .speech-fields > h2 {
   margin-bottom: 14px;

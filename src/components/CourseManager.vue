@@ -57,6 +57,11 @@ const record = ref<CourseRecord>(
     ) || starterRecord,
   ),
 );
+type DraftStep = "source" | "vocabulary" | "generation" | "review";
+const draftSteps: DraftStep[] = ["source", "vocabulary", "generation", "review"];
+const viewStep = ref<DraftStep | null>(null);
+const currentStep = computed(() => viewStep.value ?? record.value.status);
+const invalidated = ref(false);
 const audioSpec = computed(() => {
   const pack = record.value.package ?? starterRecord.package!;
   return makeCourseAudioSpec(pack.course, pack.exercises);
@@ -71,6 +76,37 @@ const job = ref(false),
 const recognizedMetadata = ref({ title: "", subtitle: "" });
 const vocabularyList = ref<InstanceType<typeof VocabularyList> | null>(null);
 const checkedOriginal = ref(false);
+function invalidateFrom(step: "source" | "vocabulary") {
+  if (record.value.status === "published") return;
+  const affected = draftSteps.indexOf(record.value.status) > draftSteps.indexOf(step);
+  if (!affected) return;
+  record.value.status = step;
+  record.value.recipe = null;
+  record.value.package = null;
+  viewStep.value = step;
+  reviewed.value = false;
+  checkedOriginal.value = false;
+  invalidated.value = true;
+}
+watch(
+  () => [record.value.id, record.value.title, record.value.subtitle, record.value.sourceText],
+  (now, before) => {
+    if (now[0] === before[0] && now.slice(1).some((value, index) => value !== before[index + 1]))
+      invalidateFrom("source");
+  },
+  { flush: "sync" },
+);
+watch(
+  () => ({
+    id: record.value.id,
+    words: JSON.stringify(record.value.vocabulary.filter((word) => word.selected)
+      .map(({ term, meaning, example }) => ({ term, meaning, example }))),
+  }),
+  (now, before) => {
+    if (now.id === before.id && now.words !== before.words) invalidateFrom("vocabulary");
+  },
+  { flush: "sync" },
+);
 watch(
   () => record.value.recipe,
   () => { reviewed.value = false; },
@@ -102,9 +138,10 @@ const published = computed(() => record.value.status === "published");
 const steps = ["原文校对", "重点词汇", "生成课程", "审核课程", "音频准备"];
 const stepIndex = computed(() =>
   ["source", "vocabulary", "generation", "review", "published"].indexOf(
-    record.value.status,
+    currentStep.value,
   ),
 );
+const reachedStep = computed(() => draftSteps.indexOf(record.value.status as DraftStep));
 const preview = computed(() => {
   if (!record.value.recipe) return null;
   try {
@@ -155,6 +192,8 @@ async function select(id: string) {
   const next = props.app.courses.find((item) => item.id === id);
   if (!next) return;
   record.value = clone(next);
+  viewStep.value = null;
+  invalidated.value = false;
   courseId.value = id;
   error.value = "";
   message.value = "";
@@ -171,6 +210,8 @@ async function create() {
     const next = newCourse();
     if (await props.app.saveCourse(next)) {
       record.value = next;
+      viewStep.value = null;
+      invalidated.value = false;
       courseId.value = next.id;
       error.value = "";
       message.value = "";
@@ -363,8 +404,15 @@ async function confirmSource() {
       )
         throw new Error("请对照原图处理待校对内容，并确认原文。");
       sourceTurns(record.value.sourceText);
-      record.value.status = "vocabulary";
-      await persist();
+      if (!(await persist())) return;
+      if (record.value.status === "source") {
+        const next = clone(record.value);
+        next.status = "vocabulary";
+        if (!(await props.app.saveCourse(next))) return;
+        record.value = next;
+      }
+      viewStep.value = "vocabulary";
+      await showStep();
     } catch (failure) {
       error.value =
         failure instanceof Error ? failure.message : String(failure);
@@ -399,11 +447,14 @@ async function confirmWords() {
       return;
     }
     const next = clone(record.value);
-    next.status = "generation";
+    if (draftSteps.indexOf(next.status as DraftStep) < 2) next.status = "generation";
     next.vocabulary = next.vocabulary.filter((word) => word.term.trim());
+    if (next.status === "review") next.package = buildCoursePackage(next);
     if (await props.app.saveCourse(next)) {
       record.value = next;
+      viewStep.value = "generation";
       error.value = "";
+      await showStep();
     }
   });
 }
@@ -427,7 +478,10 @@ async function generateCourse() {
       next.status = "review";
       if (await props.app.saveCourse(next)) {
         record.value = next;
+        viewStep.value = "review";
+        invalidated.value = false;
         reviewed.value = false;
+        await showStep();
       }
     }),
   );
@@ -442,6 +496,7 @@ async function publish() {
       next.updatedAt = new Date().toISOString();
       if (await props.app.saveCourse(next)) {
         record.value = next;
+        viewStep.value = null;
         message.value = "课程已启用，可以准备音频并交给孩子学习。";
       }
     } catch (failure) {
@@ -450,14 +505,20 @@ async function publish() {
     }
   });
 }
-async function backTo(status: "source" | "vocabulary") {
-  if (!canSave.value || published.value) return;
-  record.value.status = status;
-  record.value.recipe = null;
-  record.value.package = null;
+async function showStep() {
+  await nextTick();
+  document.querySelector(".course-steps")?.scrollIntoView({ block: "start", behavior: "instant" });
+}
+async function goToStep(step: DraftStep) {
+  if (!canSave.value || published.value || speech.courseGenerating.value || removing.value) return;
+  if (!draftSteps.includes(step) || step === currentStep.value) return;
+  if (draftSteps.indexOf(step) > reachedStep.value) return;
+  if (!(await persist())) return;
+  viewStep.value = step;
   reviewed.value = false;
   checkedOriginal.value = false;
-  await persist();
+  error.value = "";
+  await showStep();
 }
 </script>
 <template>
@@ -639,14 +700,26 @@ async function backTo(status: "source" | "vocabulary") {
             :key="label"
             :class="{
               active: index === stepIndex,
-              completed: index < stepIndex,
+              completed: index < reachedStep,
             }"
           >
-            {{ index + 1 }}. {{ label }}
+            <button
+              type="button"
+              :aria-label="`第 ${index + 1} 步：${label}`"
+              :aria-current="index === stepIndex ? 'step' : undefined"
+              :disabled="index > reachedStep || !canSave || removing || audio.courseGenerating"
+              @click="goToStep(draftSteps[index]!)"
+            >{{ index + 1 }}. {{ label }}</button>
           </li>
         </ol>
+        <p v-if="record.recipe && (currentStep === 'source' || currentStep === 'vocabulary')" class="field-help course-step-note">
+          已有学习草稿。修改原文或选中词汇后，需要重新确认并生成课程。
+        </p>
+        <p v-else-if="invalidated" class="field-help course-step-note" role="status">
+          原文或词汇已修改，请重新确认并生成课程。
+        </p>
         <fieldset class="speech-fields" :disabled="job">
-          <template v-if="record.status === 'source'">
+          <template v-if="currentStep === 'source'">
             <h2>识别并确认原文</h2>
             <label for="course-title">课程标题</label
             ><input
@@ -778,7 +851,7 @@ async function backTo(status: "source" | "vocabulary") {
               </button>
             </div>
           </template>
-          <template v-else-if="record.status === 'vocabulary'">
+          <template v-else-if="currentStep === 'vocabulary'">
             <h2>整理并确认重点词汇</h2>
             <p class="field-help">
               原文已确认。可以识别教材词汇表，也可以由应用根据课文建议词汇；两种来源合并去重，确认后用于出题。
@@ -822,7 +895,7 @@ async function backTo(status: "source" | "vocabulary") {
                 确认词汇，继续生成课程</button
               ><button
                 class="button secondary compact"
-                @click="backTo('source')"
+                @click="goToStep('source')"
               >
                 返回原文校对</button
               ><button class="text-button" @click="persist">
@@ -830,7 +903,7 @@ async function backTo(status: "source" | "vocabulary") {
               </button>
             </div>
           </template>
-          <template v-else-if="record.status === 'generation'">
+          <template v-else-if="currentStep === 'generation'">
             <h2>生成学习内容</h2>
             <p>
               已确认原文和
@@ -838,20 +911,25 @@ async function backTo(status: "source" | "vocabulary") {
               个重点词汇。接下来生成逐段释义、理解题和情境应用题，并整理拼写、句型、朗读、回忆和默写练习。
             </p>
             <p class="field-help">
-              生成后先由家长审核，启用前孩子不会进入这门课程。
+              {{ record.recipe ? '已有学习草稿，可返回审核或重新生成；生成失败会保留原草稿。' : '生成后先由家长审核，启用前孩子不会进入这门课程。' }}
             </p>
             <div class="speech-actions">
               <button class="button primary compact" @click="generateCourse">
-                生成本课学习内容</button
+                {{ record.recipe ? '重新生成本课学习内容' : '生成本课学习内容' }}</button
+              ><button
+                v-if="record.recipe"
+                class="button secondary compact"
+                @click="goToStep('review')"
+              >返回审核课程</button
               ><button
                 class="button secondary compact"
-                @click="backTo('vocabulary')"
+                @click="goToStep('vocabulary')"
               >
                 返回重点词汇
               </button>
             </div>
           </template>
-          <template v-else-if="record.status === 'review' && record.recipe">
+          <template v-else-if="currentStep === 'review' && record.recipe">
             <CourseReview
               v-model="record.recipe"
               :source-text="record.sourceText"
@@ -905,8 +983,8 @@ async function backTo(status: "source" | "vocabulary") {
                 @click="publish"
               >审核通过，启用课程 <Icon name="arrow" :size="17" /></button>
               <div class="course-review-secondary-actions">
-                <button class="text-button" @click="generateCourse">重新生成学习内容</button>
-                <button class="text-button" @click="backTo('vocabulary')">返回重点词汇</button>
+                <button class="text-button" @click="goToStep('generation')">返回生成课程</button>
+                <button class="text-button" @click="goToStep('vocabulary')">返回重点词汇</button>
               </div>
             </div>
           </template>
