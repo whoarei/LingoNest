@@ -4,6 +4,7 @@ import {
   newCourse,
   validateCourseRecord,
   modelVocabulary,
+  parseModelJSON,
   sourceTurns,
   type CourseRecord,
 } from "../src/course-library";
@@ -56,6 +57,22 @@ export function sampleCourse(): CourseRecord {
   return record;
 }
 describe("multi-course creation and durable migration", () => {
+  it("preserves OCR paragraphs when a service returns literal control characters inside JSON strings", () => {
+    const text = 'Lesson 1\nA Puma at large\n\nShe said, "Hello."\r\nOne\tTwo';
+    const raw = JSON.stringify({ text }).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t");
+    expect(parseModelJSON(raw)).toEqual({ text });
+    expect(parseModelJSON("```json\n" + raw + "\n```")).toEqual({ text });
+  });
+
+  it("keeps valid JSON escapes and rejects unrelated malformed or truncated model output", () => {
+    const text = 'A literal \\n, a backslash \\, and "quoted" text.\nNext paragraph.';
+    expect(parseModelJSON(JSON.stringify({ text }))).toEqual({ text });
+    const raw = JSON.stringify({ text }).replace('\\nNext', '\nNext');
+    expect(parseModelJSON(raw)).toEqual({ text });
+    for (const broken of ['{"text":"unfinished\nparagraph', 'Here is your text: {"text":"Hello"}', '{"text":"Hello",}', '{"text":"Hello"}{"text":"Other"}'])
+      expect(() => parseModelJSON(broken)).toThrow("结构化内容");
+  });
+
   it("soft deletion and restoration preserve all course content and learning facts without resource cleanup", () => {
     const state = emptyState(),
       record = sampleCourse();

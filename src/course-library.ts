@@ -134,7 +134,26 @@ export function parseModelJSON(raw: string): unknown {
   try {
     return JSON.parse(clean);
   } catch {
-    return fail("模型没有返回有效的结构化内容，请重试或调整模型配置。");
+    // Some OCR services put literal line breaks inside JSON strings. Escape
+    // only those control characters; keep all other JSON syntax checks strict.
+    let quoted = false,
+      escaped = false,
+      normalized = "";
+    for (const char of clean) {
+      if (quoted && !escaped && char.charCodeAt(0) < 32) {
+        normalized += JSON.stringify(char).slice(1, -1);
+        continue;
+      }
+      normalized += char;
+      if (escaped) escaped = false;
+      else if (quoted && char === "\\") escaped = true;
+      else if (char === '"') quoted = !quoted;
+    }
+    try {
+      return JSON.parse(normalized);
+    } catch {
+      return fail("模型没有返回有效的结构化内容，请重试或调整模型配置。");
+    }
   }
 }
 export function validateVocabulary(

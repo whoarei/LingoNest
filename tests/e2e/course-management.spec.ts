@@ -229,6 +229,32 @@ test("photographed original is corrected before vocabulary, photo and automatic 
   ).toEqual([0, 90]);
 });
 
+test("multiline OCR fills the original, survives reload and requires adoption before replacing existing text", async ({ page }) => {
+  await boot(page);
+  await newDraft(page);
+  await page.getByRole("button", { name: "选择课文图片", exact: true }).click();
+  await page.evaluate(() => { (window as any).__ocrLiteralLineBreaks = true; });
+  await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
+  await adult(page);
+  const original = page.getByLabel("文章或课文原文", { exact: true });
+  const text = "I love my family.\nMy mother is a teacher.";
+  await expect(original).toHaveValue(text);
+  await expect.poll(async () => (await state(page)).courses[0].sourceText).toBe(text);
+  await page.reload();
+  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
+  await page.getByRole("button", { name: "课程", exact: true }).click();
+  await openCourse(page, "My Family");
+  await expect(original).toHaveValue(text);
+  await original.fill("My corrected article.");
+  await page.evaluate(() => { (window as any).__ocrLiteralLineBreaks = true; });
+  await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
+  await adult(page);
+  await expect(page.getByLabel("新的识别结果", { exact: true })).toHaveValue(text);
+  await expect(original).toHaveValue("My corrected article.");
+  await page.getByRole("button", { name: "采用识别结果替换当前草稿", exact: true }).click();
+  await expect(original).toHaveValue(text);
+});
+
 test("failed generation preserves a resumable draft, malformed output cannot publish and stopping a request discards late results", async ({
   page,
 }) => {

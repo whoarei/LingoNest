@@ -133,10 +133,10 @@ public class CourseContentPlugin extends Plugin {
         });
     }
     private File imageFile(String path) throws IOException {
-        if (path == null || !path.matches("course-images/[a-f0-9-]{36}\\.jpg")) throw new IOException();
-        File root = new File(getContext().getFilesDir(), "course-images").getCanonicalFile();
-        File file = new File(getContext().getFilesDir(), path);
-        if (!file.getAbsoluteFile().equals(file.getCanonicalFile()) || !file.getCanonicalFile().getParentFile().equals(root) || !file.isFile()) throw new IOException();
+        // Normalize the trusted app directory first: Android may expose it through
+        // /data/data -> /data/user/0. Still reject aliases inside course-images.
+        File file = NativeGuards.courseImageFile(getContext().getFilesDir(), path);
+        if (!file.isFile()) throw new IOException();
         return file;
     }
     @PluginMethod public void imageUrl(PluginCall call) {
@@ -170,6 +170,10 @@ public class CourseContentPlugin extends Plugin {
                     content.put(new JSONObject().put("type", "image_url").put("image_url", new JSONObject().put("url", "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP))));
                 }
                 JSONObject body = new JSONObject().put("model", config.model).put("stream", false).put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", images != null && images.length() > 0 ? content : prompt)));
+                if ("api.xiaomimimo.com".equalsIgnoreCase(new URL(config.baseUrl).getHost())) {
+                    body.put("response_format", new JSONObject().put("type", "json_object"));
+                    body.put("thinking", new JSONObject().put("type", "disabled"));
+                }
                 connection = (HttpURLConnection) new URL(config.baseUrl + "/chat/completions").openConnection();
                 activeConnection = connection;
                 if (epoch != requestEpoch.get()) { call.reject("处理已停止，草稿保留。", "CONTENT_CANCELLED"); return; }

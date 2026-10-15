@@ -49,6 +49,8 @@ export const contentNative = {
     if (window.__contentFailure)
       throw Error("内容服务暂不可用，已保存的草稿保留。");
     if (window.__contentMalformed) return { text: '{"unexpected":true}' };
+    if (prompt === "recognition-text" && window.__ocrLiteralLineBreaks)
+      return { text: '{"text":"I love my family.\nMy mother is a teacher."}' };
     if (prompt === "recognition-text")
       return {
         text: JSON.stringify({

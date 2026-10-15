@@ -55,4 +55,17 @@ public class NativeGuardsTest {
             catch (IllegalArgumentException expected) {}
         }
     }
+
+    @Test public void courseImagesNormalizeTheTrustedAppDirectoryBeforeCheckingTheImagePath() throws Exception {
+        File root = temporary.newFolder();
+        String image = "course-images/12345678-1234-1234-1234-123456789abc.jpg";
+        File saved = new File(root, image);
+        assertTrue(saved.getParentFile().mkdirs());
+        assertTrue(saved.createNewFile());
+        File alias = new File(root, "../" + root.getName());
+        assertNotEquals(alias.getAbsoluteFile(), alias.getCanonicalFile());
+        File readable = NativeGuards.courseImageFile(alias, image);
+        assertEquals(saved.getCanonicalFile(), readable);
+        assertTrue(readable.isFile());
+    }
 }
