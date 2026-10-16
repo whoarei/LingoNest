@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from "vue";
-import type { Vocabulary } from "../course-library";
-import Icon from "./AppIcon.vue";
+import type { Vocabulary } from "../../../../packages/learning-modes/seven-step/authoring";
+import Icon from "../../../components/AppIcon.vue";
 
 const words = defineModel<Vocabulary[]>({ required: true });
 const editingWord = ref<Vocabulary | null>(null);

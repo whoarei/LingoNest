@@ -1,3 +1,5 @@
+import type { CourseAudioManifest } from "../packages/learning-modes/contracts";
+
 export type SpeechProtocol = "openai-speech" | "mimo-chat";
 export interface SpeechConfiguration {
   mode: "device" | "ai";
@@ -17,12 +19,7 @@ export interface SpeechStatus {
   source?: "device" | "ai" | "course";
   cached?: boolean;
 }
-export interface CourseAudioSpec {
-  courseId: string;
-  courseVersion: string;
-  title: string;
-  assets: { id: string; text: string }[];
-}
+export type CourseAudioSpec = CourseAudioManifest;
 export interface CourseAudioStatus {
   total: number;
   ready: number;

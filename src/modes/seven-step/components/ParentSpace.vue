@@ -6,7 +6,7 @@ import {
   watch,
   type UnwrapNestedRefs,
 } from "vue";
-import type { Ability } from "../../packages/learning-engine/src/model";
+import type { Ability } from "../../../../packages/learning-modes/seven-step/model";
 import type { HistoryItem, LearningUI } from "../domain";
 import {
   abilityLabels,
@@ -14,8 +14,8 @@ import {
   attemptLabel,
   buildParentReport,
   type ParentTab,
-} from "../parent-report";
-import Icon from "./AppIcon.vue";
+} from "../../../../packages/learning-modes/seven-step/reporting";
+import Icon from "../../../components/AppIcon.vue";
 import CourseManager from "./CourseManager.vue";
 
 const props = defineProps<{

@@ -11,7 +11,7 @@ async function fixture(page: Page) {
       ),
     }),
   );
-  await page.route("**/src/content.ts", (route) =>
+  await page.route("**/src/platform/content.ts", (route) =>
     route.fulfill({
       contentType: "application/javascript",
       body: readFileSync(
@@ -28,6 +28,8 @@ async function settings(page: Page) {
   await page.getByRole("button", { name: "设置", exact: true }).click();
 }
 async function courses(page: Page) {
+  // The registered mode experience is lazy-loaded after a WebView reload.
+  await expect(page.locator(".brand-symbol")).toBeVisible();
   if (
     await page
       .getByRole("button", { name: "切换到家长空间", exact: true })

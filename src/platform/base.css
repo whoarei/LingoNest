@@ -1,0 +1,4 @@
+/* Viewport reset shared by all experiences; each mode owns its typography/theme. */
+body {
+  margin: 0;
+}

@@ -4,7 +4,7 @@ import {
   contentNative,
   type ContentKind,
   type ContentConfiguration,
-} from "../content";
+} from "../platform/content";
 import { isAndroid } from "../native";
 const configuration = reactive<Record<ContentKind, ContentConfiguration>>({
   recognition: { baseUrl: "", model: "", hasKey: false },

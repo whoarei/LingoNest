@@ -1,0 +1,461 @@
+{
+  "capturedFrom": "0.1.14 before mode extraction",
+  "storageKey": "lingonest.local.v1",
+  "starterDigest": "cc413f819526507480c31406a822fcd67f2b1b138f4bcfcdf70eda68c0c0b7bd",
+  "audioDigest": "5e6e6435d5ccf3d7965b061ac3d5ddbdca3b38252a768fff978a1cd54d8a9b8c",
+  "customDigest": "8a1504e5c109bad43ab2f71274775c8058cc223e2d846c17cfc30ae370ddba0b",
+  "projectionDigest": "9b5136e769c1e8bdcc75b492a38f34c355854c9d6399cfcf365f95cec4051cb4",
+  "snapshot": {
+    "formatVersion": 2,
+    "courseVersion": "0.1.0",
+    "learners": [
+      {
+        "id": "legacy-a",
+        "nickname": "旧档案甲",
+        "createdAt": "2026-10-14T02:00:00.000Z"
+      },
+      {
+        "id": "legacy-b",
+        "nickname": "旧档案乙",
+        "createdAt": "2026-10-14T02:00:00.000Z"
+      }
+    ],
+    "activeLearnerId": "legacy-a",
+    "confirmedLearnerIds": [],
+    "events": [
+      {
+        "id": "legacy-event",
+        "type": "attempt",
+        "learnerId": "legacy-a",
+        "at": "2026-10-14T02:00:00.000Z",
+        "attempt": {
+          "id": "legacy-attempt",
+          "clientEventId": "legacy-client",
+          "learnerId": "legacy-a",
+          "sessionId": "legacy-session",
+          "exerciseId": "user.0123456789abcdef0123456789abcdef.s2.0",
+          "answer": "family",
+          "selectedIds": [],
+          "recordingPath": null,
+          "hintLevel": 0,
+          "submittedAt": "2026-10-14T02:00:00.000Z",
+          "localDate": "2026-10-14",
+          "timezone": "Asia/Shanghai",
+          "clockStatus": "normal",
+          "firstTest": true,
+          "grade": {
+            "status": "scored",
+            "score": 100,
+            "passed": true,
+            "source": "local",
+            "feedback": "拼写正确。",
+            "normalizedAnswer": "family",
+            "policyVersion": "2"
+          }
+        }
+      }
+    ],
+    "lastObservedAt": null,
+    "runs": [
+      {
+        "id": "legacy-resume",
+        "learnerId": "legacy-a",
+        "courseId": "user.0123456789abcdef0123456789abcdef",
+        "stageId": "S2",
+        "exerciseIds": [
+          "user.0123456789abcdef0123456789abcdef.s2.0"
+        ],
+        "index": 0,
+        "label": "认识单词",
+        "hints": {
+          "user.0123456789abcdef0123456789abcdef.s2.0": 1
+        },
+        "answer": "fa",
+        "selectedIds": [],
+        "recordingPath": null
+      }
+    ],
+    "pendingDeletions": [],
+    "pendingCourseDeletions": [],
+    "courses": [
+      {
+        "id": "user.0123456789abcdef0123456789abcdef",
+        "title": "My Family",
+        "subtitle": "Unit 2",
+        "sourceText": "I love my family. My mother is a teacher.",
+        "images": [],
+        "vocabularyImages": [],
+        "vocabulary": [
+          {
+            "term": "family",
+            "meaning": "家庭",
+            "example": "I love my family.",
+            "selected": true,
+            "origin": "auto"
+          }
+        ],
+        "status": "published",
+        "updatedAt": "2026-10-14T02:00:00.000Z",
+        "recipe": {
+          "translations": [
+            "我爱我的家庭。我的妈妈是一位老师。"
+          ],
+          "comprehension": [
+            {
+              "question": "妈妈的职业是什么？",
+              "options": [
+                "老师",
+                "医生"
+              ],
+              "answerIndex": 0,
+              "explanation": "原文写 teacher。"
+            }
+          ],
+          "applications": [
+            {
+              "prompt": "用 I love 表达你爱你的学校。",
+              "answers": [
+                "I love my school."
+              ],
+              "explanation": "用 school 替换 family。"
+            }
+          ]
+        },
+        "package": {
+          "course": {
+            "id": "user.0123456789abcdef0123456789abcdef",
+            "version": "1",
+            "title": "My Family",
+            "subtitle": "Unit 2",
+            "description": "由已确认的原文和重点词汇生成，按七阶段逐步练习。",
+            "turns": [
+              {
+                "id": "t1",
+                "block": "A",
+                "speaker": "课文",
+                "text": "I love my family. My mother is a teacher.",
+                "translation": "我爱我的家庭。我的妈妈是一位老师。"
+              }
+            ]
+          },
+          "exercises": [
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s1.0",
+              "stageId": "S1",
+              "kind": "choice",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s1.0",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.meaning.0",
+                "ability": "meaning",
+                "mode": "recognition"
+              },
+              "title": "理解课文",
+              "prompt": "妈妈的职业是什么？",
+              "instruction": "选择符合原文的一项。",
+              "hint": "原文写 teacher。",
+              "acceptedAnswers": [],
+              "threshold": 100,
+              "options": [
+                {
+                  "id": "o0",
+                  "text": "老师"
+                },
+                {
+                  "id": "o1",
+                  "text": "医生"
+                }
+              ],
+              "correctOptionIds": [
+                "o0"
+              ]
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s2.0",
+              "stageId": "S2",
+              "kind": "spelling",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s2.0",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.word.0",
+                "ability": "spelling",
+                "mode": "written"
+              },
+              "title": "重点词汇拼写",
+              "prompt": "家庭",
+              "instruction": "写出对应的英语单词或短语。",
+              "hint": "以 f 开头。",
+              "acceptedAnswers": [
+                "family"
+              ],
+              "threshold": 100
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s3.0",
+              "stageId": "S3",
+              "kind": "order",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s3.0",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                "ability": "usage",
+                "mode": "written"
+              },
+              "title": "把句子排列完整",
+              "prompt": "将词块排列成课文中的完整句子。",
+              "instruction": "按顺序点选词块。",
+              "hint": "句子以 I 开头。",
+              "acceptedAnswers": [],
+              "threshold": 100,
+              "tokens": [
+                {
+                  "id": "w3",
+                  "text": "family."
+                },
+                {
+                  "id": "w2",
+                  "text": "my"
+                },
+                {
+                  "id": "w1",
+                  "text": "love"
+                },
+                {
+                  "id": "w0",
+                  "text": "I"
+                }
+              ],
+              "correctTokenIds": [
+                "w0",
+                "w1",
+                "w2",
+                "w3"
+              ],
+              "exposureTargets": [
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                  "ability": "recall",
+                  "mode": "oral"
+                }
+              ]
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s6.0",
+              "stageId": "S6",
+              "kind": "sentence",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s6.0",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                "ability": "dictation",
+                "mode": "written"
+              },
+              "title": "听写课文句子",
+              "prompt": "听示范，独立写出这句话。",
+              "instruction": "保留完整词句和标点。",
+              "hint": "I love my family.",
+              "acceptedAnswers": [
+                "I love my family."
+              ],
+              "threshold": 100,
+              "speakText": "I love my family."
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s3.1",
+              "stageId": "S3",
+              "kind": "order",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s3.1",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                "ability": "usage",
+                "mode": "written"
+              },
+              "title": "把句子排列完整",
+              "prompt": "将词块排列成课文中的完整句子。",
+              "instruction": "按顺序点选词块。",
+              "hint": "句子以 My 开头。",
+              "acceptedAnswers": [],
+              "threshold": 100,
+              "tokens": [
+                {
+                  "id": "w4",
+                  "text": "teacher."
+                },
+                {
+                  "id": "w3",
+                  "text": "a"
+                },
+                {
+                  "id": "w2",
+                  "text": "is"
+                },
+                {
+                  "id": "w1",
+                  "text": "mother"
+                },
+                {
+                  "id": "w0",
+                  "text": "My"
+                }
+              ],
+              "correctTokenIds": [
+                "w0",
+                "w1",
+                "w2",
+                "w3",
+                "w4"
+              ],
+              "exposureTargets": [
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                  "ability": "recall",
+                  "mode": "oral"
+                }
+              ]
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s6.1",
+              "stageId": "S6",
+              "kind": "sentence",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s6.1",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                "ability": "dictation",
+                "mode": "written"
+              },
+              "title": "听写课文句子",
+              "prompt": "听示范，独立写出这句话。",
+              "instruction": "保留完整词句和标点。",
+              "hint": "My mother is a teacher.",
+              "acceptedAnswers": [
+                "My mother is a teacher."
+              ],
+              "threshold": 100,
+              "speakText": "My mother is a teacher."
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s4.A",
+              "stageId": "S4",
+              "kind": "oral",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s4.A",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                "ability": "readAloud",
+                "mode": "oral"
+              },
+              "title": "A 段朗读",
+              "prompt": "看着原文，清楚地读完整段。",
+              "instruction": "录音后提交，由家长回听确认。",
+              "hint": "I love my family. My mother is a teacher.",
+              "acceptedAnswers": [
+                "I love my family. My mother is a teacher."
+              ],
+              "threshold": 100,
+              "referenceText": "I love my family. My mother is a teacher.",
+              "speakText": "I love my family. My mother is a teacher.",
+              "exposureTargets": [
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                  "ability": "recall",
+                  "mode": "oral"
+                }
+              ]
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s5.A",
+              "stageId": "S5",
+              "kind": "oral",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s5.A",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                "ability": "recall",
+                "mode": "oral"
+              },
+              "title": "A 段回忆",
+              "prompt": "合上原文，尝试说出这一段。",
+              "instruction": "录音后提交，由家长回听确认。",
+              "hint": "I love my family. My mother is a teacher.",
+              "acceptedAnswers": [
+                "I love my family. My mother is a teacher."
+              ],
+              "threshold": 100,
+              "referenceText": "I love my family. My mother is a teacher.",
+              "exposureTargets": [
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.0",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.sentence.1",
+                  "ability": "dictation",
+                  "mode": "written"
+                },
+                {
+                  "knowledgeId": "user.0123456789abcdef0123456789abcdef.block.A",
+                  "ability": "recall",
+                  "mode": "oral"
+                }
+              ]
+            },
+            {
+              "id": "user.0123456789abcdef0123456789abcdef.s7.0",
+              "stageId": "S7",
+              "kind": "sentence",
+              "familyId": "user.0123456789abcdef0123456789abcdef.s7.0",
+              "target": {
+                "knowledgeId": "user.0123456789abcdef0123456789abcdef.application.0",
+                "ability": "transfer",
+                "mode": "written"
+              },
+              "title": "换个情境表达",
+              "prompt": "用 I love 表达你爱你的学校。",
+              "instruction": "按指定情境写出短句。",
+              "hint": "用 school 替换 family。",
+              "acceptedAnswers": [
+                "I love my school."
+              ],
+              "threshold": 100
+            }
+          ]
+        }
+      }
+    ],
+    "learningCourseIds": {
+      "legacy-a": "user.0123456789abcdef0123456789abcdef"
+    },
+    "confirmedCourses": [
+      {
+        "learnerId": "legacy-a",
+        "courseId": "user.0123456789abcdef0123456789abcdef",
+        "version": "1"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { coursePrompt, recognitionPrompt, vocabularyPrompt } from "../../../../packages/learning-modes/seven-step/prompts";
 import {
   computed,
   nextTick,
@@ -23,22 +24,19 @@ import {
   validateRecipe,
   type CourseRecord,
   type SourceImage,
-} from "../course-library";
+} from "../../../../packages/learning-modes/seven-step/authoring";
 import {
   contentNative,
   contentRequest,
-  coursePrompt,
-  recognitionPrompt,
-  vocabularyPrompt,
-} from "../content";
-import { useSpeech } from "../useSpeech";
-import { makeCourseAudioSpec } from "../course-speech";
-import { isAndroid } from "../native";
-import { abilityLabels } from "../parent-report";
-import Icon from "./AppIcon.vue";
-import CourseAudioPanel from "./CourseAudioPanel.vue";
-import SourceImages from "./SourceImages.vue";
-import SwipeCourseRow from "./SwipeCourseRow.vue";
+} from "../../../platform/content";
+import { useSpeech } from "../../../platform/speech";
+import { makeCourseAudioSpec } from "../../../../packages/learning-modes/seven-step/audio";
+import { isAndroid } from "../../../native";
+import { abilityLabels } from "../../../../packages/learning-modes/seven-step/reporting";
+import Icon from "../../../components/AppIcon.vue";
+import CourseAudioPanel from "../../../components/CourseAudioPanel.vue";
+import SourceImages from "../../../components/SourceImages.vue";
+import SwipeCourseRow from "../../../components/SwipeCourseRow.vue";
 import VocabularyList from "./VocabularyList.vue";
 import CourseReview from "./CourseReview.vue";
 const props = defineProps<{

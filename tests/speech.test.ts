@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { effectScope } from "vue";
 import {
   defaultSpeechConfiguration,
   emptyCourseAudioStatus,
@@ -36,7 +37,7 @@ beforeEach(() => {
   mocks.cancelCourseAudioGeneration.mockResolvedValue(undefined);
   mocks.clearSpeechCache.mockResolvedValue(undefined);
   mocks.stopSpeech.mockResolvedValue(undefined);
-  mocks.addListener.mockResolvedValue({ remove: vi.fn() });
+  mocks.addListener.mockResolvedValue({ remove: vi.fn(async () => {}) });
   mocks.clearSpeechConfig.mockResolvedValue(defaultSpeechConfiguration());
   mocks.setSpeechConfig.mockImplementation(async (input) => {
     const { apiKey, ...publicInput } = input;
@@ -44,6 +45,17 @@ beforeEach(() => {
   });
 });
 describe("speech controller", () => {
+  it("removes native listeners even when registration resolves after its mode scope is disposed", async () => {
+    const releases: ((handle: { remove(): Promise<void> }) => void)[] = [];
+    mocks.addListener.mockImplementation(() => new Promise((resolve) => releases.push(resolve)));
+    const scope = effectScope();
+    scope.run(() => useSpeech(course));
+    scope.stop();
+    const remove = vi.fn(async () => {});
+    releases.forEach((release) => release({ remove }));
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
+    mocks.addListener.mockResolvedValue({ remove: vi.fn(async () => {}) });
+  });
   it("does not start a request when stopped while configuration is still loading", async () => {
     let release!: (
       value: ReturnType<typeof defaultSpeechConfiguration>,

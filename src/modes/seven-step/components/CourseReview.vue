@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { sourceTurns, type CourseRecipe, type Vocabulary } from "../course-library";
-import Icon from "./AppIcon.vue";
+import { sourceTurns, type CourseRecipe, type Vocabulary } from "../../../../packages/learning-modes/seven-step/authoring";
+import Icon from "../../../components/AppIcon.vue";
 
 const props = defineProps<{ sourceText: string; vocabulary: Vocabulary[] }>();
 const recipe = defineModel<CourseRecipe>({ required: true });

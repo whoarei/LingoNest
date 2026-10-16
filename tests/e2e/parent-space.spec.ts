@@ -14,7 +14,7 @@ async function fixture(page: Page, seed = false) {
       ),
     }),
   );
-  await page.route("**/src/content.ts", (route) =>
+  await page.route("**/src/platform/content.ts", (route) =>
     route.fulfill({
       contentType: "application/javascript",
       body: readFileSync(

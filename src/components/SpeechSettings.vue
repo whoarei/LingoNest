@@ -7,7 +7,7 @@ import {
   watch,
   type UnwrapNestedRefs,
 } from "vue";
-import type { SpeechController } from "../useSpeech";
+import type { SpeechController } from "../platform/speech";
 import { speechVoices, speechSample, type SpeechInput } from "../speech-types";
 import Icon from "./AppIcon.vue";
 const props = defineProps<{ speech: UnwrapNestedRefs<SpeechController> }>();

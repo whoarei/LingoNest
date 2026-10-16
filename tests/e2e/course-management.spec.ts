@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 async function boot(page: Page) {
   for (const [target, fixture] of [
     ["native", "speech-native"],
-    ["content", "course-content"],
+    ["platform/content", "course-content"],
   ])
     await page.route(`**/src/${target}.ts`, (route) =>
       route.fulfill({

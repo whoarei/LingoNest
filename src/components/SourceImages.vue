@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import type { SourceImage } from "../course-library";
-import { imageSource } from "../content";
+import type { SourceImage } from "../../packages/learning-modes/contracts";
+import { imageSource } from "../platform/content";
 import Icon from "./AppIcon.vue";
 const props = defineProps<{
   images: SourceImage[];

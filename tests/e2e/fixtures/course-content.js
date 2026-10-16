@@ -40,6 +40,19 @@ export const contentNative = {
     epoch++;
   },
   request: async ({ prompt }) => {
+    // Exercise the mode's real prompts while keeping the service deterministic.
+    // Transport fixtures no longer replace the teaching module's prompt builder.
+    if (prompt.startsWith("识别图片中的教材词汇表"))
+      prompt = "recognition-vocabulary";
+    else if (prompt.startsWith("按图片排列顺序识别英语课文"))
+      prompt = "recognition-text";
+    else if (prompt.startsWith("从下列已确认英语课文"))
+      prompt = "vocabulary:" + prompt;
+    else if (prompt.startsWith("根据已确认课文和词汇")) {
+      const paragraphs = prompt.split("课文段落：")[1]
+        .split("已确认重点词汇：")[0].replace(/(?:\\n|\s)+$/, "");
+      prompt = "course:" + JSON.stringify({ paragraphs: JSON.parse(paragraphs) });
+    }
     const token = epoch;
     window.__contentRequests = (window.__contentRequests || 0) + 1;
     await new Promise((resolve) =>

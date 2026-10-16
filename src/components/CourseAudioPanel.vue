@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, type UnwrapNestedRefs } from "vue";
-import type { SpeechController } from "../useSpeech";
+import type { SpeechController } from "../platform/speech";
 import Icon from "./AppIcon.vue";
 const props = defineProps<{
   speech: UnwrapNestedRefs<SpeechController>;
