@@ -20,16 +20,15 @@ import ParentSpace from "./components/ParentSpace.vue";
 import ContentSettings from "../../components/ContentSettings.vue";
 import SourceImages from "../../components/SourceImages.vue";
 import CourseModeNotice from "../../components/CourseModeNotice.vue";
+import ParentModeSettings from "../../components/ParentModeSettings.vue";
 import { useModeSelection } from "../../platform/mode-selection";
 import {
   abilityLabels,
   statusLabels,
-  parentNav as learningParentNav,
-  type ParentTab as LearningParentTab,
+  parentNav,
+  type ParentTab,
 } from "../../../packages/learning-modes/seven-step/reporting";
 
-type ParentTab = LearningParentTab | "mode";
-const parentNav = [...learningParentNav, { id: "mode", label: "模式", icon: "settings" }] as const;
 const modeSelection = useModeSelection();
 const app = reactive(useLearning({ activeModeId: modeSelection.activeModeId, modeChanging: modeSelection.busy }));
 const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === modeSelection.activeModeId.value)?.title ?? "当前模式");
@@ -1252,7 +1251,7 @@ function shortDate(value: string) {
         <div>
           <span class="eyebrow">A SAFE LITTLE NEST</span>
           <h1>小窝设置</h1>
-          <p>管理语音、文字识别与课程生成模型。</p>
+          <p>管理课程模式、语音、文字识别与课程生成模型。</p>
         </div>
         <button class="text-button" @click="returnFromSettings">
           {{ parentMode ? "返回家长空间" : "返回学习空间" }}
@@ -1268,6 +1267,7 @@ function shortDate(value: string) {
         </div>
         <p class="field-help">在家长空间创建、切换和管理孩子的学习档案。</p>
       </section>
+      <ParentModeSettings />
       <SpeechSettings :speech="app.speech" />
       <ContentSettings />
       <section class="storage-note">

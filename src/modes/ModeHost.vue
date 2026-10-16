@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, ref, onErrorCaptured, provide, watch, type Component } from "vue";
 import { teachingModes } from "./registry";
 import { createModeSelection, modeSelectionKey } from "../platform/mode-selection";
-import ModeRecovery from "../components/ModeRecovery.vue";
+import ParentModeSettings from "../components/ParentModeSettings.vue";
 
 const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);
 provide(modeSelectionKey, selection);
@@ -38,7 +38,7 @@ onErrorCaptured((error) => {
     <h1>学习模式暂时无法加载</h1>
     <p role="alert">{{ failure || '当前课程模式尚未安装，请家长选择已安装的模式。' }}</p>
     <p>已有课程与学习记录保留，不会自动切换到其他模式。</p>
-    <ModeRecovery />
+    <ParentModeSettings />
     <button @click="reload">重新打开</button>
   </main>
   <div v-else :aria-busy="selection.busy.value" @click.capture="blockWhileSwitching" @keydown.capture="blockWhileSwitching">

@@ -4,7 +4,7 @@ import { useModeSelection } from "../../../src/platform/mode-selection";
 import { SnapshotRepository } from "../../../src/platform/snapshot-repository";
 import { courseModeAccess, type CourseModeStatus } from "../../../packages/learning-modes/availability";
 import CourseModeNotice from "../../../src/components/CourseModeNotice.vue";
-import ModeRecovery from "../../../src/components/ModeRecovery.vue";
+import ParentModeSettings from "../../../src/components/ParentModeSettings.vue";
 const selection = useModeSelection();
 const courses = (window as unknown as { __fixtureCourses: { id: string; title: string }[] }).__fixtureCourses;
 const selected = ref(courses[0]!);
@@ -36,6 +36,6 @@ async function save(status: Exclude<CourseModeStatus, "draft" | "missing">) {
       <button v-if="access.status === 'review'" @click="save('ready')">审核并开放测试内容</button>
     </section>
     <button @click="parent = !parent">家长空间</button>
-    <ModeRecovery v-if="parent" />
+    <ParentModeSettings v-if="parent" />
   </main>
 </template>

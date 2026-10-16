@@ -27,14 +27,21 @@ async function fixtureRegistry(page: Page) {
 }
 async function openModes(page: Page) {
   await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
-  await page.getByRole("navigation", { name: "家长导航" }).getByRole("button", { name: "模式", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
 }
 async function confirm(page: Page) {
   await page.getByLabel("7加5的答案").fill("12");
   await page.getByRole("button", { name: "确认并继续", exact: true }).click();
 }
 test("production exposes only seven-step and retains one device-wide setting across profiles and reloads", async ({ page }) => {
-  await seed(page); await page.goto("/"); await openModes(page);
+  await seed(page); await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await openModes(page);
+  await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button")).toHaveCount(4);
+  await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button", { name: "模式", exact: true })).toHaveCount(0);
   const radios = page.getByRole("radiogroup", { name: "全局课程模式" }).getByRole("radio");
   await expect(radios).toHaveCount(1);
   await expect(radios.first()).toHaveAttribute("aria-checked", "true");
@@ -55,9 +62,9 @@ test("production exposes only seven-step and retains one device-wide setting acr
   await radios.first().click();
   expect(await page.evaluate(key => localStorage.getItem(key), settingsKey)).toBe(settings);
   expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
-  await page.getByRole("button", { name: "管理孩子档案" }).click();
+  await page.locator(".settings-page").getByRole("button", { name: "管理孩子档案", exact: true }).click();
   await page.locator(".learner-option").filter({ hasText: legacy.snapshot.learners[1]!.nickname }).click();
-  await page.getByRole("navigation", { name: "家长导航" }).getByRole("button", { name: "模式", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   expect(await page.evaluate(key => localStorage.getItem(key), settingsKey)).toBe(settings);
   const state = await page.evaluate(key => JSON.parse(JSON.parse(localStorage.getItem(key)!).payload), legacy.storageKey);
   expect(state.courses).toEqual(legacy.snapshot.courses);
@@ -122,7 +129,7 @@ test("a failed global setting save keeps the outgoing experience and old snapsho
   expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
 });
 
-test("saving a draft must succeed before entering modes; retry and round-trip preserve the draft and legacy progress", async ({ page }) => {
+test("settings retain the editor and require its draft to save before switching modes; retry and round-trip preserve legacy progress", async ({ page }) => {
   await fixtureRegistry(page);
   await page.route("**/src/native.ts", route => route.fulfill({ contentType: "application/javascript", body: readFileSync(new URL("./fixtures/speech-native.js", import.meta.url), "utf8").replace("saveState: async (input) => {", `saveState: async (input) => {
     if (window.__holdLearningSave) await new Promise(resolve => { window.__releaseLearningSave = resolve; });
@@ -143,11 +150,16 @@ test("saving a draft must succeed before entering modes; retry and round-trip pr
   const settings = await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"));
   await page.evaluate(() => { (window as any).__saveFailure = true; });
   await title.fill("切换前的未保存修改");
-  await navigation.getByRole("button", { name: "模式", exact: true }).click();
-  await expect(title).toBeVisible();
-  await expect(title).toHaveValue("切换前的未保存修改");
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toHaveCount(0);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
+  await expect(page.locator(".busy-indicator")).toHaveCount(0);
+  await page.getByRole("radio", { name: /测试自适应模式/ }).click(); await confirm(page);
   await expect(page.getByRole("alert").filter({ hasText: "保存未完成" }).first()).toBeVisible();
+  await expect(page.locator(".test-adaptive-experience")).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: /七步/ })).toHaveAttribute("aria-checked", "true");
+  expect(await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"))).toBe(settings);
+  await page.getByRole("button", { name: "返回家长空间", exact: true }).click();
+  await expect(title).toHaveValue("切换前的未保存修改");
   // Internal tab requests and leaving parent space must share the save guard.
   await page.locator(".parent-child-button").click();
   await expect(title).toHaveValue("切换前的未保存修改");
@@ -156,27 +168,37 @@ test("saving a draft must succeed before entering modes; retry and round-trip pr
   expect(await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"))).toBe(settings);
   expect((await readState()).courses[1].title).toBe("已保存草稿");
   await page.evaluate(() => { (window as any).__saveFailure = false; (window as any).__holdLearningSave = true; });
-  await navigation.getByRole("button", { name: "模式", exact: true }).click();
+  await navigation.getByRole("button", { name: "报告", exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof (window as any).__releaseLearningSave)).toBe("function");
   await expect(title).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toHaveCount(0);
-  await navigation.getByRole("button", { name: "报告", exact: true }).click();
+  await navigation.getByRole("button", { name: "概况", exact: true }).click();
   await expect(title).toBeVisible();
   await title.fill("保存等待期间的最新修改");
   await page.evaluate(() => { (window as any).__holdLearningSave = false; (window as any).__releaseLearningSave(); });
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "学习报告", exact: true })).toBeVisible();
+  await navigation.getByRole("button", { name: "课程", exact: true }).click();
+  await page.locator(".course-list button").filter({ hasText: "保存等待期间的最新修改" }).click();
+  await expect(title).toHaveValue("保存等待期间的最新修改");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.locator(".busy-indicator")).toHaveCount(0);
   const beforeSwitch = await readState();
   expect(beforeSwitch.courses[1].title).toBe("保存等待期间的最新修改");
   await page.getByRole("radio", { name: /测试自适应模式/ }).click();
+  await expect(page.locator(".test-adaptive-experience")).toHaveCount(0);
+  await confirm(page);
   await expect(page.locator(".test-adaptive-experience")).toBeVisible();
-  expect(await readState()).toEqual(beforeSwitch);
+  const saved = await readState();
+  // A retained editor may refresh its save timestamp while preparing the switch.
+  expect(saved.courses[1]).toEqual({ ...beforeSwitch.courses[1], updatedAt: saved.courses[1].updatedAt });
+  expect({ ...saved, courses: beforeSwitch.courses }).toEqual(beforeSwitch);
   await page.getByRole("button", { name: "家长空间", exact: true }).click();
   await page.getByRole("radio", { name: /七步/ }).click(); await confirm(page);
   await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await readState()).toEqual(beforeSwitch);
+  expect(await readState()).toEqual(saved);
   await page.reload();
   await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await readState()).toEqual(beforeSwitch);
+  expect(await readState()).toEqual(saved);
   const final = await readState();
   expect(final.courses[0]).toEqual(legacy.snapshot.courses[0]);
   expect(final.events).toEqual(legacy.snapshot.events);

@@ -13,12 +13,10 @@ import {
   answerText,
   attemptLabel,
   buildParentReport,
-  type ParentTab as LearningParentTab,
+  type ParentTab,
 } from "../../../../packages/learning-modes/seven-step/reporting";
 import Icon from "../../../components/AppIcon.vue";
 import CourseManager from "./CourseManager.vue";
-import CourseModeSettings from "../../../components/CourseModeSettings.vue";
-type ParentTab = LearningParentTab | "mode";
 
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
@@ -34,7 +32,6 @@ const titles: Record<ParentTab, string> = {
   report: "学习报告",
   course: "课程管理",
   profiles: "孩子档案",
-  mode: "课程模式",
 };
 const descriptions: Record<ParentTab, string> = {
   overview: "看看孩子的学习情况，找到今天需要陪伴的一小步。",
@@ -42,7 +39,6 @@ const descriptions: Record<ParentTab, string> = {
   report: "看见具体能力与作答依据，分清练过和学会。",
   course: "对照教材核对内容，准备好本课的学习资源。",
   profiles: "每个孩子都有独立的学习记录，昵称就够了。",
-  mode: "由家长统一决定所有课程使用的学习模式，已有内容和进度保留。",
 };
 const report = computed(() =>
   buildParentReport(props.app.history, props.app.skills, props.app.exercises),
@@ -259,7 +255,7 @@ function showAbility(value: Ability) {
     </section>
 
     <section
-      v-if="!app.learner && tab !== 'profiles' && tab !== 'course' && tab !== 'mode'"
+      v-if="!app.learner && tab !== 'profiles' && tab !== 'course'"
       class="section-panel empty-state"
     >
       <Icon name="leaf" :size="42" />
@@ -270,9 +266,7 @@ function showAbility(value: Ability) {
       </button>
     </section>
 
-    <CourseModeSettings v-else-if="tab === 'mode'" :authorize="requestAdult" />
     <template v-else-if="tab === 'overview'">
-      <button class="text-button" @click="tab = 'mode'">课程模式 · 统一管理所有课程 <Icon name="chevron" :size="16" /></button>
       <section class="parent-summary">
         <div>
           <span class="light-eyebrow">{{ app.course.subtitle }}</span>

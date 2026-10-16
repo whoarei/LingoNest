@@ -13,7 +13,7 @@ async function confirm() {
 <template>
   <section aria-label="家长课程模式管理">
     <CourseModeSettings :authorize="authorize" />
-    <form v-if="action" @submit.prevent="confirm" class="recovery-confirm">
+    <form v-if="action" @submit.prevent="confirm" class="mode-confirm">
       <p>请陪伴学习的大人确认：7 + 5 = ?</p>
       <label>7加5的答案 <input v-model="answer" inputmode="numeric" autocomplete="off" /></label>
       <button :disabled="answer.trim() !== '12'">确认并继续</button>
@@ -23,7 +23,7 @@ async function confirm() {
   </section>
 </template>
 <style scoped>
-.recovery-confirm { margin: 20px 0; padding: 20px; border: 1px solid #bccbbf; border-radius: 12px; }
-.recovery-confirm input { width: 60px; margin: 8px; font: inherit; }
-.recovery-confirm button { padding: 10px; margin: 6px; cursor: pointer; }
+.mode-confirm { margin: 20px 0; padding: 20px; border: 1px solid #bccbbf; border-radius: 12px; }
+.mode-confirm input { width: 60px; margin: 8px; font: inherit; }
+.mode-confirm button { padding: 10px; margin: 6px; cursor: pointer; }
 </style>

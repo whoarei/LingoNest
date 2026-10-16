@@ -593,12 +593,6 @@
   padding: 3px 10px;
   font-weight: 500;
 }
-.seven-step-mode .bottom-nav[aria-label="家长导航"] button {
-  flex: 1;
-  min-width: 0;
-  padding-left: 6px;
-  padding-right: 6px;
-}
 .seven-step-mode .bottom-nav button span {
   height: 27px;
   display: grid;
