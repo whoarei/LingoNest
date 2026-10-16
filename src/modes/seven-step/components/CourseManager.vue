@@ -4,6 +4,7 @@ import {
   computed,
   nextTick,
   onBeforeUnmount,
+  onScopeDispose,
   reactive,
   ref,
   toRef,
@@ -39,12 +40,16 @@ import SourceImages from "../../../components/SourceImages.vue";
 import SwipeCourseRow from "../../../components/SwipeCourseRow.vue";
 import VocabularyList from "./VocabularyList.vue";
 import CourseReview from "./CourseReview.vue";
+import CourseModeNotice from "../../../components/CourseModeNotice.vue";
+import { useModeSelection } from "../../../platform/mode-selection";
+import { sevenStepCourseAccess } from "../course-access";
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
   active: boolean;
   authorize: (label: string, action: () => Promise<void>) => Promise<void>;
 }>();
 const emit = defineEmits<{ settings: [] }>();
+const modeSelection = useModeSelection();
 const courseId = defineModel<string | null>("courseId", { required: true });
 const clone = (value: CourseRecord) =>
   JSON.parse(JSON.stringify(value)) as CourseRecord;
@@ -133,6 +138,34 @@ watch(listTab, () => {
   message.value = "";
 });
 const published = computed(() => record.value.status === "published");
+let preparedForLeave = false;
+let draftRevision = 0;
+watch(record, () => { preparedForLeave = false; draftRevision++; }, { deep: true, flush: "sync" });
+const modeAccess = computed(() => sevenStepCourseAccess(modeSelection.activeModeId.value, record.value));
+const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === modeSelection.activeModeId.value)?.title ?? "当前模式");
+async function prepareDeparture() {
+  if (job.value || removing.value || speech.courseGenerating.value)
+    throw Error("请先完成当前课程处理或暂停音频生成，再离开课程编辑。");
+  await speech.stop();
+  // Include edits made while an earlier snapshot was waiting for storage.
+  let savedRevision: number;
+  do {
+    savedRevision = draftRevision;
+    if (!(await persist())) throw Error(error.value || props.app.error || "课程草稿保存失败，请重试。");
+  } while (savedRevision !== draftRevision);
+  preparedForLeave = true;
+}
+onScopeDispose(modeSelection.beforeSwitch(prepareDeparture));
+async function prepareLeave(): Promise<boolean> {
+  try { await prepareDeparture(); return true; }
+  catch (failure) {
+    error.value = failure instanceof Error ? failure.message : String(failure);
+    return false;
+  }
+}
+function prepareModeContent() {
+  document.querySelector('[aria-label="新建课程步骤"]')?.scrollIntoView({ block: "start" });
+}
 const steps = ["原文校对", "重点词汇", "生成课程", "审核课程", "音频准备"];
 const stepIndex = computed(() =>
   ["source", "vocabulary", "generation", "review", "published"].indexOf(
@@ -244,7 +277,7 @@ async function handleBack(): Promise<boolean> {
   window.scrollTo({ top: 0, behavior: "instant" });
   return true;
 }
-defineExpose({ handleBack });
+defineExpose({ handleBack, prepareLeave });
 async function remove(id: string) {
   if (!canSave.value || removing.value || speech.courseGenerating.value) return;
   if (courseId.value === id && !(await persist())) return;
@@ -336,7 +369,7 @@ onBeforeUnmount(() => {
   clearTimeout(feedbackTimer);
   abort();
   clearTimeout(saveTimer);
-  if (!published.value) void persist();
+  if (!published.value && !preparedForLeave) void persist();
   if (speech.courseGenerating.value) void speech.cancelCourse();
 });
 async function addImage(vocabulary: boolean, mode: "camera" | "gallery") {
@@ -683,6 +716,7 @@ async function goToStep(step: DraftStep) {
       重试课程资源清理
     </button>
     <div v-if="courseId" class="course-detail-page">
+      <CourseModeNotice v-if="!modeAccess.canLearn" :title="record.title || '新建课程'" :mode-title="modeTitle" :status="modeAccess.status" parent @prepare="prepareModeContent" />
       <p v-if="job" class="inline-note" role="status">
         正在处理，请稍候。草稿已保存。<button
           class="text-button"

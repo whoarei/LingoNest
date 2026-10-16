@@ -12,6 +12,8 @@ import type {
 import type { Learner, Course, StageView, HistoryItem } from "../../../packages/learning-modes/seven-step/model";
 export type { Learner, Course, DialogueTurn, StageView, HistoryItem } from "../../../packages/learning-modes/seven-step/model";
 export interface LearningUI {
+  courseMode: ComputedRef<{ modeId: string; status: import("../../../packages/learning-modes/availability").CourseModeStatus; canLearn: boolean }>;
+  prepareModeChange(): Promise<void>;
   speech: SpeechController;
   ready: Ref<boolean>;
   busy: Ref<boolean>;

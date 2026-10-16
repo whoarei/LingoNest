@@ -1,5 +1,7 @@
 import { LocalRepository } from "./repository";
-import { computed, ref, watch, getCurrentScope, onScopeDispose } from "vue";
+import { computed, ref, watch, getCurrentScope, onScopeDispose, type Ref } from "vue";
+import { sevenStepIdentity } from "../../../packages/learning-modes/seven-step/identity";
+import { sevenStepCourseAccess } from "./course-access";
 import {
   gradeExercise,
   projectLearning,
@@ -43,7 +45,7 @@ const localDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function useLearning(): LearningUI {
+export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>> } = {}): LearningUI {
   let disposed = false;
   const repository = new LocalRepository();
   const state = ref<LocalState>(emptyState());
@@ -62,7 +64,7 @@ export function useLearning(): LearningUI {
     index = ref(0),
     runLabel = ref(""),
     hintLevel = ref<0 | 1 | 3>(0);
-  let sessionId = makeId();
+  let sessionId: string | null = null;
   let saveQueue: Promise<void> = Promise.resolve();
   let submitInFlight = false;
   let nextInFlight = false;
@@ -101,6 +103,14 @@ export function useLearning(): LearningUI {
           record.id === state.value.learningCourseIds[learner.value?.id ?? ""],
       ) ?? starterRecord,
   );
+  const courseMode = computed(() => sevenStepCourseAccess(options.activeModeId?.value ?? sevenStepIdentity.id, activeRecord.value));
+  function canLearn() {
+    if (!courseMode.value.canLearn || options.modeChanging?.value) {
+      notice.value = "请家长生成并审核当前模式内容，准备完成后才能学习。原有课程和进度保留。";
+      return false;
+    }
+    return true;
+  }
   const course = computed(() => activeRecord.value.package!.course);
   const exercises = computed(() => activeRecord.value.package!.exercises);
   const speech = useSpeech(
@@ -277,7 +287,9 @@ export function useLearning(): LearningUI {
     });
   }
   function savedRun(draft: LocalState) {
-    return draft.runs.find((r) => r.id === sessionId);
+    if (!sessionId || !run.value.length) return undefined;
+    return draft.runs.find((r) => r.id === sessionId &&
+      r.learnerId === learner.value?.id && r.courseId === course.value.id);
   }
   function copyDraft(saved: PracticeRun) {
     saved.answer = answer.value;
@@ -336,6 +348,18 @@ export function useLearning(): LearningUI {
   async function stopSpeech() {
     await operation(() => speech.stop());
   }
+  async function prepareModeChange() {
+    if (!ready.value || busy.value || recording.value || speech.courseGenerating.value)
+      throw Error("请先完成当前保存、录音或音频生成，再切换课程模式。");
+    await speech.stop();
+    if (isAndroid) {
+      playbackSequence++;
+      await native.stopAudio();
+    }
+    if (savedRun(state.value) &&
+      !(await transaction(draft => { const saved = savedRun(draft); if (saved) copyDraft(saved); })))
+      throw Error(error.value || "学习进度保存失败，课程模式未切换。");
+  }
   async function clearRun() {
     playbackSequence++;
     if (isAndroid)
@@ -345,6 +369,8 @@ export function useLearning(): LearningUI {
       });
     else window.speechSynthesis?.cancel();
     recording.value = false;
+    // Detach the live session; its historical recovery point belongs to its original context.
+    sessionId = null;
     run.value = [];
     resetAnswer();
   }
@@ -362,6 +388,7 @@ export function useLearning(): LearningUI {
         view.value = "home";
   }
   async function confirmCourse() {
+    if (!canLearn()) return;
     const id = learner.value?.id;
     if (!id) return;
     if (
@@ -454,6 +481,7 @@ export function useLearning(): LearningUI {
     return saved;
   }
   async function openLesson() {
+    if (!canLearn()) return;
     if (await exposure(allExposureTargets.value)) view.value = "lesson";
   }
   async function deleteCourse(id: string): Promise<boolean> {
@@ -550,6 +578,7 @@ export function useLearning(): LearningUI {
     label: string,
     stageId: StageId | null,
   ) {
+    if (!canLearn()) return;
     if (!confirmed.value) {
       await openLesson();
       notice.value = "请先与家长核对课文原图并确认。";
@@ -614,6 +643,7 @@ export function useLearning(): LearningUI {
     view.value = "practice";
   }
   function startStage(id: StageId) {
+    if (!canLearn()) return;
     if (confirmed.value && !stages.value.find((s) => s.id === id)?.available) {
       notice.value = "先完成前面的练习，再继续这一站。";
       return;
@@ -625,6 +655,7 @@ export function useLearning(): LearningUI {
     );
   }
   function startReview() {
+    if (!canLearn()) return;
     tick.value = new Date().toISOString();
     if (!queue.value.length) {
       notice.value = "暂时没有需要复习的内容。明天再来看看吧。";
@@ -633,9 +664,10 @@ export function useLearning(): LearningUI {
     void begin(queue.value, "今日复习", null);
   }
   async function submit() {
+    if (!canLearn()) return;
     const ex = currentExercise.value,
       profile = learner.value;
-    if (!ex || !profile || feedback.value || busy.value || submitInFlight)
+    if (!ex || !profile || !sessionId || feedback.value || busy.value || submitInFlight)
       return;
     if (recording.value) {
       error.value = "请先结束录音，再提交。";
@@ -711,6 +743,7 @@ export function useLearning(): LearningUI {
     submitInFlight = false;
   }
   async function next() {
+    if (!canLearn()) return;
     if (!feedback.value || busy.value || nextInFlight) return;
     nextInFlight = true;
     try {
@@ -744,6 +777,7 @@ export function useLearning(): LearningUI {
     }
   }
   async function revealHint() {
+    if (!canLearn()) return;
     const ex = currentExercise.value;
     if (!ex || feedback.value) return;
     const level = Math.max(hintLevel.value, 1) as 1 | 3;
@@ -765,6 +799,7 @@ export function useLearning(): LearningUI {
     }
   }
   async function revealReference() {
+    if (!canLearn()) return;
     const ex = currentExercise.value;
     if (!ex) return;
     if (
@@ -785,6 +820,7 @@ export function useLearning(): LearningUI {
     }
   }
   async function speak(text: string) {
+    if (!canLearn()) return;
     if (recording.value) {
       error.value = "请先结束录音再播放。";
       return;
@@ -801,6 +837,7 @@ export function useLearning(): LearningUI {
     });
   }
   async function toggleRecording() {
+    if (!recording.value && !canLearn()) return;
     if (!isAndroid) {
       error.value =
         "录音请在 Android 应用中使用。浏览器用于界面与文字练习预览。";
@@ -975,6 +1012,8 @@ export function useLearning(): LearningUI {
       void recordingSubscription?.then((handle) => handle.remove()).catch(() => {});
     });
   return {
+    courseMode,
+    prepareModeChange,
     speech,
     ready,
     busy,

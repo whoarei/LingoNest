@@ -85,6 +85,15 @@ const network = () => {
 };
 persist();
 export const native = {
+  loadDocument: async ({ key }) => JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}'),
+  saveDocument: async ({ key, expectedRevision, payload }) => {
+    if (window.__modeSaveFailure) throw Error('模拟模式设置保存失败');
+    const current = JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}');
+    if (current.revision !== expectedRevision) throw Error('课程模式设置已更新，请重新打开');
+    const next = { revision: current.revision + 1, payload };
+    sessionStorage.setItem('native-document:' + key, JSON.stringify(next));
+    return { revision: next.revision };
+  },
   loadState: async () => ({ revision: state.revision, payload: state.payload }),
   saveState: async (input) => {
     if (window.__saveFailure) throw Error("模拟保存失败");

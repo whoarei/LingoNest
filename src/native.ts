@@ -12,6 +12,8 @@ import type {
   CourseAudioProgress,
 } from "./speech-types";
 export interface LingoNativeAPI {
+  loadDocument(options: { key: string }): Promise<{ revision: number; payload: string | null }>;
+  saveDocument(options: { key: string; expectedRevision: number; payload: string }): Promise<{ revision: number }>;
   loadState(): Promise<{ revision: number; payload: string | null }>;
   saveState(options: {
     expectedRevision: number;

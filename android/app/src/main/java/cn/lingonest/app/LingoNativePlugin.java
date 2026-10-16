@@ -184,6 +184,40 @@ public class LingoNativePlugin extends Plugin {
         }
     }
 
+    @PluginMethod public void loadDocument(PluginCall call) {
+        final String key = call.getString("key");
+        try { NativeDocumentStore.databaseName(key); }
+        catch (IllegalArgumentException invalid) { call.reject("文档标识无效。", "INVALID_ARGUMENT"); return; }
+        storage.execute(() -> {
+            try (NativeStateStore document = NativeDocumentStore.open(getContext().getApplicationContext(), key)) {
+                NativeStateStore.State state = document.load();
+                JSObject result = new JSObject();
+                result.put("revision", state.revision);
+                result.put("payload", state.payload == null ? JSONObject.NULL : state.payload);
+                call.resolve(result);
+            } catch (Exception failure) { rejectStorage(call, failure); }
+        });
+    }
+
+    @PluginMethod public void saveDocument(PluginCall call) {
+        final String key = call.getString("key");
+        final String payload = call.getString("payload");
+        try { NativeDocumentStore.databaseName(key); }
+        catch (IllegalArgumentException invalid) { call.reject("文档标识无效。", "INVALID_ARGUMENT"); return; }
+        Object input = call.getData().opt("expectedRevision");
+        if (!(input instanceof Number)) { call.reject("数据版本必须是整数。", "INVALID_ARGUMENT"); return; }
+        final double expected = ((Number) input).doubleValue();
+        if (!Double.isFinite(expected) || expected < 0 || expected >= NativeGuards.MAX_REVISION || expected != Math.floor(expected)) {
+            call.reject("数据版本无效。", "INVALID_ARGUMENT"); return;
+        }
+        storage.execute(() -> {
+            try (NativeStateStore document = NativeDocumentStore.open(getContext().getApplicationContext(), key)) {
+                long revision = document.save((long) expected, payload);
+                call.resolve(new JSObject().put("revision", revision));
+            } catch (Exception failure) { rejectStorage(call, failure); }
+        });
+    }
+
     @PluginMethod public void getSpeechConfig(PluginCall call) {
         storage.execute(() -> { try { call.resolve(SpeechConfigStore.publicConfig(speechConfigStore.load())); }
             catch (Exception invalid) { call.reject("语音配置无法读取，请在设置中清除后重新配置。", "SPEECH_CONFIG_UNREADABLE"); } });

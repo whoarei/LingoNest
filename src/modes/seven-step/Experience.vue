@@ -5,6 +5,7 @@ import {
   nextTick,
   onMounted,
   onBeforeUnmount,
+  onScopeDispose,
   reactive,
   ref,
   watch,
@@ -18,14 +19,21 @@ import SpeechSettings from "../../components/SpeechSettings.vue";
 import ParentSpace from "./components/ParentSpace.vue";
 import ContentSettings from "../../components/ContentSettings.vue";
 import SourceImages from "../../components/SourceImages.vue";
+import CourseModeNotice from "../../components/CourseModeNotice.vue";
+import { useModeSelection } from "../../platform/mode-selection";
 import {
   abilityLabels,
   statusLabels,
-  parentNav,
-  type ParentTab,
+  parentNav as learningParentNav,
+  type ParentTab as LearningParentTab,
 } from "../../../packages/learning-modes/seven-step/reporting";
 
-const app = reactive(useLearning());
+type ParentTab = LearningParentTab | "mode";
+const parentNav = [...learningParentNav, { id: "mode", label: "模式", icon: "settings" }] as const;
+const modeSelection = useModeSelection();
+const app = reactive(useLearning({ activeModeId: modeSelection.activeModeId, modeChanging: modeSelection.busy }));
+const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === modeSelection.activeModeId.value)?.title ?? "当前模式");
+onScopeDispose(modeSelection.beforeSwitch(() => app.prepareModeChange()));
 const noFlexGap = ref(false);
 const nickname = ref("");
 const block = ref<"A" | "B" | "C">("A");
@@ -35,11 +43,9 @@ const referenceRevealed = ref(false);
 const parentMode = ref(false);
 const parentTab = ref<ParentTab>("overview");
 const managedCourseId = ref<string | null>(null);
-const parentSpace = ref<{ handleBack(): Promise<boolean> } | null>(null);
+const parentSpace = ref<{ handleBack(): Promise<boolean>; prepareLeave(): Promise<boolean> } | null>(null);
 const settingsOrigin = ref<LearningUI["view"]["value"]>("home");
-watch(parentTab, () => {
-  managedCourseId.value = null;
-});
+let preparingParentDeparture = false;
 let handlingBack = false;
 let disposed = false;
 let backSubscription: { remove(): Promise<void> } | undefined;
@@ -166,7 +172,15 @@ watch(
     checkedTranscript.value = false;
   },
 );
+async function prepareParentDeparture(): Promise<boolean> {
+  if (preparingParentDeparture || app.busy || modeSelection.busy.value) return false;
+  preparingParentDeparture = true;
+  try { return await parentSpace.value?.prepareLeave() ?? true; }
+  finally { preparingParentDeparture = false; }
+}
 async function navigate(view: LearningUI["view"]["value"]) {
+  if (preparingParentDeparture || modeSelection.busy.value) return;
+  if (parentMode.value && view !== "parent" && view !== "settings" && !(await prepareParentDeparture())) return;
   if (view === "settings" && app.view !== "settings")
     settingsOrigin.value = app.view;
   const wasParentMode = parentMode.value;
@@ -191,10 +205,17 @@ async function navigate(view: LearningUI["view"]["value"]) {
   await nextTick();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
-function selectParentTab(tab: ParentTab) {
-  if (tab === "course") managedCourseId.value = null;
+async function selectParentTab(tab: ParentTab): Promise<boolean> {
+  if (preparingParentDeparture || app.busy || modeSelection.busy.value) return false;
+  if (parentMode.value && parentTab.value === "course" && !(await prepareParentDeparture())) return false;
+  managedCourseId.value = null;
   parentTab.value = tab;
-  navigate("parent");
+  await navigate("parent");
+  return true;
+}
+async function prepareCourseMode() {
+  if (!(await selectParentTab("course"))) return;
+  managedCourseId.value = app.course.id;
 }
 async function switchSpace() {
   if (app.view === "settings" && parentMode.value) {
@@ -211,7 +232,7 @@ async function returnFromSettings() {
   await navigate(parentMode.value ? "parent" : settingsOrigin.value);
 }
 async function handleBack() {
-  if (handlingBack || app.busy || !app.ready) return;
+  if (handlingBack || preparingParentDeparture || modeSelection.busy.value || app.busy || !app.ready) return;
   handlingBack = true;
   try {
     const closeImage = document.querySelector<HTMLButtonElement>(
@@ -240,7 +261,7 @@ async function handleBack() {
     }
     if (parentMode.value) {
       if (await parentSpace.value?.handleBack()) return;
-      if (parentTab.value !== "overview") selectParentTab("overview");
+      if (parentTab.value !== "overview") await selectParentTab("overview");
       else await switchSpace();
       return;
     }
@@ -395,7 +416,8 @@ function shortDate(value: string) {
       v-if="app.ready && parentMode"
       ref="parentSpace"
       v-show="app.view === 'parent'"
-      v-model:tab="parentTab"
+      :tab="parentTab"
+      @update:tab="selectParentTab"
       v-model:course-id="managedCourseId"
       :app="app"
       :active="app.view === 'parent'"
@@ -440,6 +462,9 @@ function shortDate(value: string) {
       </p>
     </main>
 
+    <main v-else-if="app.learner && !app.courseMode.canLearn && app.view !== 'parent' && app.view !== 'settings'" class="page">
+      <CourseModeNotice :title="app.course.title" :mode-title="modeTitle" :status="app.courseMode.status" @prepare="prepareCourseMode" />
+    </main>
     <main v-else-if="app.view === 'home' && app.learner" class="page home-page">
       <section class="page-intro">
         <div>

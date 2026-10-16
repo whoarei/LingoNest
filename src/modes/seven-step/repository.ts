@@ -6,6 +6,6 @@ export class LocalRepository extends SnapshotRepository<
   ReturnType<typeof sevenStepStateCodec.empty>
 > {
   constructor() {
-    super(sevenStepStateCodec);
+    super(sevenStepStateCodec, { nativeLegacy: true });
   }
 }
