@@ -29,7 +29,7 @@ describe("global mode selection", () => {
     const old = values.get(legacy.storageKey);
     const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);
     await selection.load();
-    expect(selection.modes.map(mode => mode.id)).toEqual(["seven-step"]);
+    expect(selection.modes.map(mode => mode.id)).toEqual(["seven-step", "passage-path"]);
     expect(JSON.parse(JSON.parse(values.get(key)!).payload)).toEqual({ formatVersion: 1, activeModeId: "seven-step" });
     await selection.select("seven-step");
     expect(JSON.parse(values.get(key)!).revision).toBe(1);

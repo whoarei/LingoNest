@@ -17,11 +17,10 @@ watch(
   () => props.images.map((image) => image.path).join("|"),
   async () => {
     const token = ++epoch;
-    const results = await Promise.allSettled(
-      props.images.map(
-        async (image) => [image.path, await imageSource(image)] as const,
-      ),
-    );
+    const results = await Promise.all(props.images.map(async (image) => {
+      try { return { status: "fulfilled" as const, value: [image.path, await imageSource(image)] as const }; }
+      catch (reason) { return { status: "rejected" as const, reason }; }
+    }));
     if (token !== epoch) return;
     urls.value = {};
     errors.value = [];

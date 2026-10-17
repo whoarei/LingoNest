@@ -245,6 +245,9 @@ export function useSpeech(
   }
   async function refreshCourse() {
     if (!isAndroid || disposed) return;
+    if (!course.value.assets.length) {
+      courseAudio.value = emptyCourseAudioStatus(0); courseReady.value = false; courseError.value = ""; return;
+    }
     const epoch = courseEpoch;
     try {
       const result = await native.getCourseAudio({ course: course.value });
@@ -261,7 +264,7 @@ export function useSpeech(
     }
   }
   async function generateCourse() {
-    if (!isAndroid || disposed || courseGenerating.value || generationOwner) return false;
+    if (!isAndroid || disposed || !course.value.assets.length || courseGenerating.value || generationOwner) return false;
     const epoch = courseEpoch;
     const canStart = () => !disposed && epoch === courseEpoch && !generationOwner;
     await stop();

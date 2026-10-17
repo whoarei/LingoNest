@@ -1,3 +1,4 @@
+import { fixtureDraft } from '/tests/fixtures/passage-path.ts';
 const defaults = () => ({
   recognition: {
     baseUrl: "https://content.example.com/v1",
@@ -40,6 +41,7 @@ export const contentNative = {
     epoch++;
   },
   request: async ({ prompt }) => {
+    if (prompt.startsWith("你为课文闯关模式")) prompt = "passage-path";
     // Exercise the mode's real prompts while keeping the service deterministic.
     // Transport fixtures no longer replace the teaching module's prompt builder.
     if (prompt.startsWith("识别图片中的教材词汇表"))
@@ -62,6 +64,7 @@ export const contentNative = {
     if (window.__contentFailure)
       throw Error("内容服务暂不可用，已保存的草稿保留。");
     if (window.__contentMalformed) return { text: '{"unexpected":true}' };
+    if (prompt === "passage-path") return { text: JSON.stringify(fixtureDraft()) };
     if (prompt === "recognition-text" && window.__ocrLiteralLineBreaks)
       return { text: '{"text":"I love my family.\nMy mother is a teacher."}' };
     if (prompt === "recognition-text")

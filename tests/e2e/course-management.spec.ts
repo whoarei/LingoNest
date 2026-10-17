@@ -88,6 +88,12 @@ async function state(page: Page) {
     ),
   );
 }
+async function deletionWork(page: Page) {
+  return page.evaluate(() => {
+    const saved = sessionStorage.getItem("native-document:lingonest.deletions.v1");
+    return saved ? JSON.parse(JSON.parse(saved).payload) : { plans: [], completed: [] };
+  });
+}
 
 test("typed article, automatic vocabulary, review and assignment create a second playable course and preserve the starter", async ({
   page,
@@ -892,7 +898,11 @@ test("published course can restore its progress, then purge permanently with ato
   expect(purged.runs).toHaveLength(0);
   expect(purged.confirmedCourses).toHaveLength(0);
   expect(purged.learners).toHaveLength(2);
-  expect(purged.pendingCourseDeletions).toHaveLength(1);
+  expect(purged.pendingCourseDeletions).toHaveLength(0);
+  const pendingWork = await deletionWork(page);
+  expect(pendingWork.plans).toHaveLength(1);
+  expect(pendingWork.plans[0].target).toEqual({ kind: "course", id });
+  expect(pendingWork.plans[0].removed).toEqual(["seven-step", "passage-path"]);
   await page.reload();
   await expect(
     page.getByRole("alert").filter({ hasText: "资源清理未完成" }),
@@ -910,8 +920,9 @@ test("published course can restore its progress, then purge permanently with ato
     .getByRole("button", { name: "重试课程资源清理", exact: true })
     .click();
   await expect
-    .poll(async () => (await state(page)).pendingCourseDeletions.length)
+    .poll(async () => (await deletionWork(page)).plans.length)
     .toBe(0);
+  expect((await deletionWork(page)).completed).toContainEqual({ kind: "course", id });
   expect(
     await page.evaluate(
       () => (window as any).__deletedResources.course.courseId,

@@ -32,6 +32,18 @@ beforeEach(() => {
 });
 
 describe("native media ownership on mode unload", () => {
+  it("keeps material-only courses out of native audio requests without borrowing another course's assets", async () => {
+    const scope = effectScope();
+    const speech = scope.run(() => useSpeech({ ...course, courseId: "material-only", assets: [] }))!;
+    try {
+      await speech.load();
+      expect(native.getCourseAudio).not.toHaveBeenCalled();
+      expect(await speech.generateCourse()).toBe(false);
+      expect(native.generateCourseAudio).not.toHaveBeenCalled();
+      expect(speech.courseReady.value).toBe(false);
+      expect(speech.courseError.value).toBe("");
+    } finally { scope.stop(); }
+  });
   it.each([
     { method: "play", flush: "post" },
     { method: "preview", flush: "post" },

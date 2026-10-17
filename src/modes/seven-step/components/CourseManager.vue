@@ -28,8 +28,8 @@ import {
 } from "../../../../packages/learning-modes/seven-step/authoring";
 import {
   contentNative,
-  contentRequest,
 } from "../../../platform/content";
+import { createContentRequests } from "../../../platform/content-requests";
 import { useSpeech } from "../../../platform/speech";
 import { makeCourseAudioSpec } from "../../../../packages/learning-modes/seven-step/audio";
 import { isAndroid } from "../../../native";
@@ -50,6 +50,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ settings: [] }>();
 const modeSelection = useModeSelection();
+const requests = createContentRequests();
+const contentRequest = requests.request;
 const courseId = defineModel<string | null>("courseId", { required: true });
 const clone = (value: CourseRecord) =>
   JSON.parse(JSON.stringify(value)) as CourseRecord;
@@ -351,7 +353,7 @@ async function perform(action: (current: () => boolean) => Promise<void>) {
 function abort() {
   jobEpoch++;
   job.value = false;
-  if (isAndroid) void contentNative.cancelRequest().catch(() => {});
+  void requests.cancel();
 }
 watch(
   () => props.active,
@@ -366,6 +368,7 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  void requests.dispose();
   clearTimeout(feedbackTimer);
   abort();
   clearTimeout(saveTimer);

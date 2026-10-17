@@ -1,5 +1,7 @@
-import { LocalRepository } from "./repository";
-import { computed, ref, watch, getCurrentScope, onScopeDispose, type Ref } from "vue";
+import { computed, ref, watch, getCurrentScope, getCurrentInstance, inject, onScopeDispose, type Ref } from "vue";
+import { createSevenStepServices, sevenStepServicesKey, type SevenStepServices } from "./services";
+import { assertNotDeleted, saveSevenStepCourse } from "./catalog";
+import type { DeletionTarget } from "../../platform/deletions";
 import { sevenStepIdentity } from "../../../packages/learning-modes/seven-step/identity";
 import { sevenStepCourseAccess } from "./course-access";
 import {
@@ -34,7 +36,6 @@ import { useSpeech } from "../../platform/speech";
 import {
   archiveCourse,
   restoreCourse as restoreArchivedCourse,
-  purgeCourse as purgeArchivedCourse,
 } from "../../../packages/learning-modes/seven-step/deletion";
 
 const makeId = () =>
@@ -45,9 +46,10 @@ const localDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>> } = {}): LearningUI {
+export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>>; services?: SevenStepServices } = {}): LearningUI {
   let disposed = false;
-  const repository = new LocalRepository();
+  const services = options.services ?? (getCurrentInstance() ? inject(sevenStepServicesKey, undefined) : undefined) ?? createSevenStepServices();
+  const repository = services.state;
   const state = ref<LocalState>(emptyState());
   const ready = ref(false),
     busy = ref(false),
@@ -80,12 +82,23 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     );
   }
   const tick = ref(new Date().toISOString());
+  const deletionEpoch = ref(0);
+  const unsubscribeDeletion = services.deletions.state.subscribe(() => { deletionEpoch.value++; });
+  const applySnapshot = (value: LocalState) => {
+    const oldLearner = state.value.activeLearnerId;
+    if (sessionId && (oldLearner !== value.activeLearnerId ||
+      state.value.learningCourseIds[oldLearner ?? ""] !== value.learningCourseIds[value.activeLearnerId ?? ""])) {
+      sessionId = null; run.value = []; index.value = 0; resetAnswer();
+    }
+    state.value = value;
+  };
+  const unsubscribeState = repository.subscribe(applySnapshot);
   const learners = computed(() => state.value.learners);
-  const learner = computed(
-    () =>
-      state.value.learners.find((l) => l.id === state.value.activeLearnerId) ??
-      null,
-  );
+  const learner = computed(() => {
+    deletionEpoch.value;
+    return state.value.learners.find(l => l.id === state.value.activeLearnerId &&
+      !services.deletions.isBlocked({ kind: "learner", id: l.id })) ?? null;
+  });
   const courses = computed(() => [
     starterRecord,
     ...state.value.courses.filter((record) => !record.deletedAt),
@@ -103,7 +116,13 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
           record.id === state.value.learningCourseIds[learner.value?.id ?? ""],
       ) ?? starterRecord,
   );
-  const courseMode = computed(() => sevenStepCourseAccess(options.activeModeId?.value ?? sevenStepIdentity.id, activeRecord.value));
+  const courseMode = computed(() => {
+    deletionEpoch.value;
+    if (services.deletions.isBlocked({ kind: "course", id: activeRecord.value.id }) ||
+      state.value.activeLearnerId && services.deletions.isBlocked({ kind: "learner", id: state.value.activeLearnerId }))
+      return { modeId: options.activeModeId?.value ?? sevenStepIdentity.id, status: "missing" as const, canLearn: false };
+    return sevenStepCourseAccess(options.activeModeId?.value ?? sevenStepIdentity.id, activeRecord.value);
+  });
   function canLearn() {
     if (!courseMode.value.canLearn || options.modeChanging?.value) {
       notice.value = "请家长生成并审核当前模式内容，准备完成后才能学习。原有课程和进度保留。";
@@ -111,8 +130,11 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     }
     return true;
   }
-  const course = computed(() => activeRecord.value.package!.course);
-  const exercises = computed(() => activeRecord.value.package!.exercises);
+  const course = computed(() => activeRecord.value.package?.course ?? {
+    id: activeRecord.value.id, version: "unpublished", title: activeRecord.value.title, subtitle: activeRecord.value.subtitle,
+    description: "请家长准备当前模式内容。", turns: [],
+  });
+  const exercises = computed(() => activeRecord.value.package?.exercises ?? []);
   const speech = useSpeech(
     computed(() => makeCourseAudioSpec(course.value, exercises.value)),
   );
@@ -199,7 +221,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     };
   }
   const stages = computed(() =>
-    stageDefinitions.map((def, i) => {
+    (activeRecord.value.package ? stageDefinitions : []).map((def, i) => {
       const progress = stageResults(def.id);
       const previousComplete = stageDefinitions
         .slice(0, i)
@@ -242,24 +264,32 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
 
   async function transaction(
     change: (draft: LocalState) => void,
+    learning = true,
   ): Promise<boolean> {
     if (!ready.value) return false;
+    const expectedLearner = state.value.activeLearnerId;
+    const expectedCourse = state.value.learningCourseIds[expectedLearner ?? ""];
     let ok = false;
     pendingWrites += 1;
     busy.value = true;
     const action = saveQueue.then(async () => {
       busy.value = true;
       try {
-        const draft: LocalState = JSON.parse(JSON.stringify(state.value));
-        const priorCount = draft.events.length;
-        change(draft);
-        // Untrusted wall-clock changes cannot introduce delay anchors through answer exposure.
-        if (clockSuspect(Date.now()))
-          draft.events = draft.events.filter(
-            (event, i) => i < priorCount || event.type !== "exposure",
-          );
-        await repository.save(draft);
-        state.value = draft;
+        await services.queue.run(async () => {
+          await services.deletions.refresh();
+          return repository.update(draft => {
+            if (draft.activeLearnerId !== expectedLearner || draft.learningCourseIds[expectedLearner ?? ""] !== expectedCourse)
+              throw Error("学习上下文已变化，请重新选择后操作。");
+            if (learning) {
+              if (expectedLearner) assertNotDeleted(services.deletions, { kind: "learner", id: expectedLearner });
+              assertNotDeleted(services.deletions, { kind: "course", id: expectedCourse ?? starterRecord.id });
+            }
+            const priorCount = draft.events.length;
+            change(draft);
+            // Untrusted clocks cannot introduce delay anchors through exposure.
+            if (clockSuspect(Date.now())) draft.events = draft.events.filter((event, i) => i < priorCount || event.type !== "exposure");
+          });
+        });
         tick.value = new Date().toISOString();
         ok = true;
       } catch (e) {
@@ -321,9 +351,10 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     const id = makeId();
     if (
       await transaction((d) => {
+        assertNotDeleted(services.deletions, { kind: "learner", id });
         d.learners.push({ id, nickname, createdAt: new Date().toISOString() });
         d.activeLearnerId = id;
-      })
+      }, false)
     )
       if (initialView !== "parent" && view.value === initialView)
         view.value = "home";
@@ -341,7 +372,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
         const profile = d.learners.find((item) => item.id === id);
         if (!profile) throw new Error("学习档案已变更，请重新选择。");
         profile.nickname = nickname;
-      })
+      }, false)
     )
       notice.value = "昵称已更新，学习记录保留。";
   }
@@ -381,8 +412,9 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     await clearRun();
     if (
       await transaction((d) => {
+        assertNotDeleted(services.deletions, { kind: "learner", id });
         d.activeLearnerId = id;
-      })
+      }, false)
     )
       if (initialView !== "parent" && view.value === initialView)
         view.value = "home";
@@ -424,26 +456,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       error.value = errorText(failure);
       return false;
     }
-    return transaction((d) => {
-      if (
-        copy.deletedAt ||
-        d.courses.some((item) => item.id === copy.id && item.deletedAt) ||
-        d.pendingCourseDeletions.some((job) => job.record.id === copy.id)
-      )
-        throw new Error("课程已删除，不能重新保存旧草稿。");
-      const index = d.courses.findIndex((item) => item.id === copy.id);
-      if (index >= 0 && d.courses[index]!.status === "published") {
-        if (JSON.stringify(d.courses[index]) !== JSON.stringify(copy))
-          throw new Error("已启用课程保持原版本，请新建课程保存变更。");
-        return;
-      }
-      if (index < 0 && d.courses.filter((item) => !item.deletedAt).length >= 30)
-        throw new Error("此设备最多保存 30 门自建课程。");
-      if (index < 0 && d.courses.length >= 300)
-        throw new Error("本机课程保存数量已达上限。");
-      if (index < 0) d.courses.push(copy);
-      else d.courses[index] = copy;
-    });
+    return transaction(draft => saveSevenStepCourse(draft, copy, services.deletions), false);
   }
   async function assignCourse(id: string): Promise<boolean> {
     error.value = "";
@@ -465,6 +478,8 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     const learnerId = learner.value.id;
     await clearRun();
     const saved = await transaction((d) => {
+      assertNotDeleted(services.deletions, { kind: "course", id });
+      assertNotDeleted(services.deletions, { kind: "learner", id: learnerId });
       d.learningCourseIds[learnerId] = id;
       if (
         !d.confirmedCourses.some(
@@ -476,7 +491,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
           courseId: id,
           version: record.package!.course.version,
         });
-    });
+    }, false);
     if (saved) notice.value = "已设为当前孩子的学习课程，原课程进度保留。";
     return saved;
   }
@@ -499,8 +514,9 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     await clearRun();
     await speech.stop();
     const saved = await transaction((d) => {
+      assertNotDeleted(services.deletions, { kind: "course", id });
       archiveCourse(d, id);
-    });
+    }, false);
     if (saved) {
       notice.value = "课程已移到已删除，内容、音频与学习记录保留，可随时恢复。";
     }
@@ -508,23 +524,37 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
   }
   async function restoreCourse(id: string): Promise<boolean> {
     error.value = "";
-    const saved = await transaction((d) => restoreArchivedCourse(d, id));
+    const saved = await transaction((d) => {
+      assertNotDeleted(services.deletions, { kind: "course", id }); restoreArchivedCourse(d, id);
+    }, false);
     if (saved) notice.value = "课程已恢复，原有学习进度和资源保留。";
     return saved;
   }
   let cleaningCourses = false;
+  async function coordinatedDeletion(target: DeletionTarget): Promise<boolean> {
+    pendingWrites++; busy.value = true;
+    try {
+      await saveQueue;
+      await services.deletions.request(target);
+      return true;
+    } catch (failure) {
+      if (services.deletions.dataRemoved(target)) {
+        error.value = `本机资源清理未完成，可重试或下次启动自动处理：${errorText(failure)}`;
+        return true;
+      }
+      error.value = `保存未完成：删除流程尚未完成，剩余数据暂停使用，可重试：${errorText(failure)}`;
+      return false;
+    } finally { pendingWrites--; busy.value = pendingWrites > 0; }
+  }
   async function purgeCourse(id: string): Promise<boolean> {
     error.value = "";
     if (view.value === "practice" || speech.courseGenerating.value) {
       error.value = "请先退出练习或暂停音频生成，再彻底删除课程。";
       return false;
     }
-    const saved = await transaction((d) => {
-      purgeArchivedCourse(d, id);
-    });
+    const saved = await coordinatedDeletion({ kind: "course", id });
     if (saved) {
       notice.value = "课程及本课学习记录已彻底删除，无法恢复。";
-      await retryCourseCleanup();
     }
     return saved;
   }
@@ -533,33 +563,9 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     if (error.value.includes("本机资源清理")) error.value = "";
     cleaningCourses = true;
     try {
-      for (const job of [...state.value.pendingCourseDeletions]) {
-        try {
-          if (isAndroid)
-            await native.deleteCourseResources({
-              ...(job.record.package
-                ? {
-                    course: makeCourseAudioSpec(
-                      job.record.package.course,
-                      job.record.package.exercises,
-                    ),
-                  }
-                : {}),
-              images: job.images,
-              recordings: job.recordings,
-            });
-          if (
-            !(await transaction((d) => {
-              d.pendingCourseDeletions = d.pendingCourseDeletions.filter(
-                (item) => item.record.id !== job.record.id,
-              );
-            }))
-          )
-            break;
-        } catch (failure) {
-          error.value = `课程已删除，本机资源清理未完成，可重试或下次启动自动处理：${errorText(failure)}`;
-        }
-      }
+      await services.retryCleanup();
+    } catch (failure) {
+      error.value = `本机资源清理未完成，可重试或下次启动自动处理：${errorText(failure)}`;
     } finally {
       cleaningCourses = false;
     }
@@ -936,38 +942,11 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     if (!id || busy.value) return;
     await clearRun();
     if (
-      await transaction((d) => {
-        d.learners = d.learners.filter((l) => l.id !== id);
-        d.events = d.events.filter((e) => e.learnerId !== id);
-        d.runs = d.runs.filter((r) => r.learnerId !== id);
-        if (isAndroid && !d.pendingDeletions.includes(id))
-          d.pendingDeletions.push(id);
-        d.confirmedLearnerIds = d.confirmedLearnerIds.filter((l) => l !== id);
-        d.confirmedCourses = d.confirmedCourses.filter(
-          (item) => item.learnerId !== id,
-        );
-        delete d.learningCourseIds[id];
-        d.activeLearnerId = d.learners[0]?.id ?? null;
-      })
+      await coordinatedDeletion({ kind: "learner", id })
     ) {
-      if (isAndroid) await purgePendingRecordings();
       if (initialView !== "parent" && view.value === initialView)
         view.value = "home";
       notice.value = "该学习档案和学习记录已删除。";
-    }
-  }
-  async function purgePendingRecordings() {
-    for (const id of state.value.pendingDeletions) {
-      try {
-        await native.deleteRecordings({ learnerId: id });
-        await transaction((d) => {
-          d.pendingDeletions = d.pendingDeletions.filter(
-            (value) => value !== id,
-          );
-        });
-      } catch (e) {
-        error.value = `档案已删除，录音清理未完成，将在下次启动重试：${errorText(e)}`;
-      }
     }
   }
   watch(view, (nextView, previousView) => {
@@ -985,14 +964,13 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
         });
     }
   });
-  void repository
-    .load()
-    .then((value) => {
+  void services
+    .boot()
+    .then(() => {
       if (disposed) return;
-      state.value = value;
+      applySnapshot(repository.snapshot());
       ready.value = true;
-      if (isAndroid) void purgePendingRecordings();
-      void retryCourseCleanup();
+      if (services.startupError) error.value = `本机资源清理未完成，可重试：${services.startupError}`;
     })
     .catch((e) => {
       error.value = `无法读取学习记录：${errorText(e)}`;
@@ -1009,6 +987,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
   if (getCurrentScope())
     onScopeDispose(() => {
       disposed = true;
+      unsubscribeState(); unsubscribeDeletion();
       void recordingSubscription?.then((handle) => handle.remove()).catch(() => {});
     });
   return {
@@ -1033,9 +1012,10 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     restoreCourse,
     purgeCourse,
     retryCourseCleanup,
-    pendingCourseCleanupCount: computed(
-      () => state.value.pendingCourseDeletions.length,
-    ),
+    pendingCourseCleanupCount: computed(() => {
+      deletionEpoch.value;
+      return state.value.pendingCourseDeletions.length + state.value.pendingDeletions.length + services.deletions.pendingTargets().length;
+    }),
     confirmed,
     stages,
     currentExercise,

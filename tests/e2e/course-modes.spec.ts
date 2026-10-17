@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import type legacyFixture from "../fixtures/seven-step-legacy.json";
-import { starterRecord } from "../../packages/learning-modes/seven-step/authoring";
+import { newCourse, starterRecord } from "../../packages/learning-modes/seven-step/authoring";
 
 const legacy: typeof legacyFixture = JSON.parse(readFileSync(new URL("../fixtures/seven-step-legacy.json", import.meta.url), "utf8"));
 const settingsKey = "lingonest.mode-settings.v1";
@@ -33,7 +33,7 @@ async function confirm(page: Page) {
   await page.getByLabel("7加5的答案").fill("12");
   await page.getByRole("button", { name: "确认并继续", exact: true }).click();
 }
-test("production exposes only seven-step and retains one device-wide setting across profiles and reloads", async ({ page }) => {
+test("production exposes both independent modes and retains one device-wide setting across profiles and reloads", async ({ page }) => {
   await seed(page); await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
@@ -43,9 +43,9 @@ test("production exposes only seven-step and retains one device-wide setting acr
   await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button")).toHaveCount(4);
   await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button", { name: "模式", exact: true })).toHaveCount(0);
   const radios = page.getByRole("radiogroup", { name: "全局课程模式" }).getByRole("radio");
-  await expect(radios).toHaveCount(1);
+  await expect(radios).toHaveCount(2);
   await expect(radios.first()).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByText("目前只有", { exact: false })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /课文闯关/ })).toHaveAttribute("aria-checked", "false");
   for (const width of [320, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     const navigation = page.getByRole("navigation", { name: "家长导航" });
@@ -72,6 +72,23 @@ test("production exposes only seven-step and retains one device-wide setting acr
   expect(state.runs).toEqual(legacy.snapshot.runs);
   await page.reload(); await openModes(page);
   await expect(radios.first()).toHaveAttribute("aria-checked", "true");
+});
+
+test("a material-only selection survives reload and blocks seven-step without showing another course", async ({ page }) => {
+  const record = newCourse(); record.title = "闯关专属材料"; record.sourceText = "Hello, my friend.";
+  const snapshot = { ...legacy.snapshot, courses: [...legacy.snapshot.courses, record],
+    learningCourseIds: { ...legacy.snapshot.learningCourseIds, "legacy-a": record.id } };
+  const stored = JSON.stringify({ revision: 8, payload: JSON.stringify(snapshot) });
+  await page.addInitScript(({ key, stored }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, stored); }, { key: legacy.storageKey, stored });
+  await page.goto("/");
+  await expect(page.locator(".course-mode-notice")).toContainText("闯关专属材料");
+  await expect(page.getByRole("button", { name: /开始.*练习|继续.*练习/ })).toHaveCount(0);
+  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(stored);
+  await page.reload();
+  await expect(page.locator(".course-mode-notice")).toContainText("闯关专属材料");
+  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(stored);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByRole("radiogroup", { name: "全局课程模式" }).getByRole("radio")).toHaveCount(2);
 });
 test("unknown saved mode requires parent confirmation and never silently loads seven-step", async ({ page }) => {
   await seed(page, "removed-mode"); await page.goto("/");

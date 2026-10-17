@@ -1,0 +1,50 @@
+.passage-path-mode { min-height:100vh; color:#263c3b; background:#f2f6f1; font-family:system-ui,"Microsoft Yahei",sans-serif; padding:20px 16px 48px; padding:20px max(16px,calc((100% - 900px)/2)) 48px; box-sizing:border-box; line-height:1.65; }
+.passage-path-mode * { box-sizing:border-box; }
+.passage-path-mode h1,.passage-path-mode h2,.passage-path-mode h3,.passage-path-mode p { margin:0 0 12px; }
+.passage-path-mode h1 { font-size:26px; line-height:1.4; }
+.passage-path-mode h2 { font-size:20px; }
+.passage-path-mode button,.passage-path-mode input,.passage-path-mode textarea,.passage-path-mode select { font:inherit; }
+.passage-path-mode button { min-height:44px; padding:9px 16px; border:1px solid #b8ccc3; border-radius:12px; background:#fff; color:#275a50; cursor:pointer; overflow-wrap:anywhere; }
+.passage-path-mode button:disabled { opacity:.5; cursor:default; }
+.passage-path-mode button.primary,.passage-path-mode .primary { background:#237568; color:#fff; border-color:#237568; }
+.passage-path-mode button[aria-pressed="true"] { background:#d9eee4; border-color:#237568; box-shadow:inset 0 0 0 1px #237568; }
+.passage-path-mode input:not([type="checkbox"]),.passage-path-mode textarea,.passage-path-mode select { width:100%; display:block; min-height:44px; padding:10px; margin:6px 0 12px; border:1px solid #b8ccc3; border-radius:9px; background:#fff; color:#263c3b; }
+.passage-path-mode label { display:block; }
+.passage-path-mode fieldset { border:0; padding:0; margin:0; min-width:0; }
+.passage-path-mode .passage-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:20px; }
+.passage-path-mode .passage-brand { font-weight:750; font-size:20px; }
+.passage-path-mode .passage-header p { color:#637d76; font-size:13px; margin:3px 0 0; }
+.passage-path-mode .passage-actions,.passage-path-mode .passage-tabs,.passage-path-mode .passage-tokens { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.passage-path-mode .passage-actions { margin:12px 0; }
+.passage-path-mode .passage-tabs { margin:0 0 18px; }
+.passage-path-mode .passage-tabs [aria-current="page"] { background:#e0eee2; font-weight:700; }
+.passage-path-mode .passage-stack { display:grid; gap:18px; }
+.passage-path-mode .passage-card,.passage-path-mode .section-panel,.passage-path-mode section[aria-label="家长课程模式管理"] { background:#fff; border:1px solid #d8e3da; border-radius:20px; padding:24px; min-width:0; overflow-wrap:anywhere; }
+.passage-path-mode .passage-context { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:18px; }
+.passage-path-mode .passage-hero { background:#e1eee3; }
+.passage-path-mode .eyebrow { color:#497267; font-size:13px; letter-spacing:.04em; }
+.passage-path-mode .passage-levels { list-style:none; display:grid; gap:12px; padding:0; margin:0; }
+.passage-path-mode .passage-levels li { display:flex; align-items:center; gap:16px; }
+.passage-path-mode .passage-levels li div { flex:1; }
+.passage-path-mode .passage-levels h2,.passage-path-mode .passage-levels p { margin:0; }
+.passage-path-mode .level-number { display:grid; place-items:center; border-radius:50%; width:40px; height:40px; flex-shrink:0; background:#e1eee3; }
+.passage-path-mode .passage-error { padding:15px; background:#ffede9; border-radius:12px; color:#923f35; }
+.passage-path-mode .passage-note,.passage-path-mode .inline-note { padding:14px; background:#f4f2e4; border-radius:12px; }
+.passage-path-mode .passage-answer { margin:20px 0; }
+.passage-path-mode .passage-choices { display:grid; gap:12px; }
+.passage-path-mode .passage-choices button { text-align:left; }
+.passage-path-mode .passage-selected { border:1px dashed #93b7a8; padding:16px; min-height:64px; margin-bottom:12px; }
+.passage-path-mode .passage-feedback { padding:18px; margin-top:18px; background:#e8f4e8; border-radius:14px; }
+.passage-path-mode .passage-turn { padding:14px 0; border-bottom:1px solid #e0e9df; }
+.passage-path-mode .passage-check { margin:18px 0; }
+.passage-path-mode .passage-check input { width:20px; height:20px; vertical-align:middle; margin-right:8px; }
+.passage-path-mode .passage-review-question { padding:18px; background:#f6f8f4; border-radius:12px; margin:15px 0; }
+.passage-path-mode .passage-confirm { position:fixed; z-index:10001; top:12vh; left:16px; right:16px; max-width:420px; margin:0 auto; box-shadow:0 0 0 100vmax rgba(25,45,38,.4); }
+.passage-path-mode .field-help { font-size:13px; color:#62786d; }
+.passage-path-mode .speech-fields { margin:18px 0; }
+.passage-path-mode .content-config-grid { display:grid; gap:22px; }
+.passage-path-mode .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+/* Older Android WebViews parse gap but do not apply it to flex layouts. */
+.passage-path-mode.no-flex-gap .passage-header,.passage-path-mode.no-flex-gap .passage-actions,.passage-path-mode.no-flex-gap .passage-tabs,.passage-path-mode.no-flex-gap .passage-tokens,.passage-path-mode.no-flex-gap .passage-levels li { gap:0; }
+.passage-path-mode.no-flex-gap .passage-header > *,.passage-path-mode.no-flex-gap .passage-actions > *,.passage-path-mode.no-flex-gap .passage-tabs > *,.passage-path-mode.no-flex-gap .passage-tokens > *,.passage-path-mode.no-flex-gap .passage-levels li > * { margin-right:10px; margin-bottom:10px; }
+@media(max-width:480px) { .passage-path-mode .passage-card,.passage-path-mode .section-panel { padding:18px; } .passage-path-mode h1 { font-size:23px; } .passage-path-mode .passage-levels li { flex-wrap:wrap; } }

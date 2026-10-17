@@ -36,7 +36,7 @@ describe("independent teaching mode contracts", () => {
     expect(await registry.requireMode("adaptive").loadExperience()).toEqual({ screen: "adaptive-session" });
     expect(first).not.toHaveBeenCalled();
     expect(() => registry.requireMode("not-installed")).toThrow("尚未安装");
-    expect(teachingModes.modes.map((mode) => mode.identity.id)).toEqual(["seven-step"]);
+    expect(teachingModes.modes.map((mode) => mode.identity.id)).toEqual(["seven-step", "passage-path"]);
   });
 
   it("rejects ambiguous registrations and unknown defaults without replacing data", () => {

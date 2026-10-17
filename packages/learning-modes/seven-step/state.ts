@@ -190,7 +190,7 @@ export function decodeState(payload: string): LocalState {
   const availableCourseIds = new Set([
     starterRecord.id,
     ...s.courses
-      .filter((record) => !record.deletedAt && record.status === "published")
+      .filter((record) => !record.deletedAt)
       .map((record) => record.id),
   ]);
   const exercises = [
