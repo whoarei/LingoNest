@@ -138,8 +138,8 @@ defineExpose({ prepareLeave: persist });
         <button type="button" class="frame-link" @click="draft.subtitle = recognizedMetadata.subtitle">采用识别教材或单元</button>
       </p>
       <div class="frame-actions">
-        <button type="button" @click="pick('camera')">拍摄课文</button>
-        <button type="button" @click="pick('gallery')">选择课文图片</button>
+        <button type="button" class="button secondary" @click="pick('camera')">拍摄课文</button>
+        <button type="button" class="button secondary" @click="pick('gallery')">选择课文图片</button>
       </div>
       <SourceImages
         :images="draft.images"
@@ -147,14 +147,16 @@ defineExpose({ prepareLeave: persist });
         :disabled="busy || job"
         @change="draft.images = $event"
       />
-      <button v-if="draft.images.length" type="button" @click="recognize">识别课文图片</button>
+      <button v-if="draft.images.length" type="button" class="button secondary" @click="recognize">识别课文图片</button>
       <div v-if="replacement" class="frame-note">
         <label>
           新的识别结果
           <textarea v-model="replacement" rows="6" maxlength="6000" />
         </label>
-        <button type="button" @click="draft.sourceText = replacement; replacement = ''">采用识别结果替换当前草稿</button>
-        <button type="button" @click="replacement = ''">保留当前原文</button>
+        <div class="frame-actions">
+          <button type="button" class="button secondary" @click="draft.sourceText = replacement; replacement = ''">采用识别结果替换当前草稿</button>
+          <button type="button" class="text-button" @click="replacement = ''">保留当前原文</button>
+        </div>
       </div>
       <label for="material-source">文章或课文原文</label>
       <textarea
@@ -166,12 +168,12 @@ defineExpose({ prepareLeave: persist });
       />
       <h2>词汇表或补充图片</h2>
       <div class="frame-actions">
-        <button type="button" @click="pick('camera', true)">拍摄词汇表</button>
-        <button type="button" @click="pick('gallery', true)">选择词汇表图片</button>
+        <button type="button" class="button secondary" @click="pick('camera', true)">拍摄词汇表</button>
+        <button type="button" class="button secondary" @click="pick('gallery', true)">选择词汇表图片</button>
       </div>
       <SourceImages :images="draft.supplementImages" editable :disabled="busy || job" @change="draft.supplementImages = $event" />
       <button type="button" class="frame-button" @click="save">保存教材</button>
     </fieldset>
-    <button v-if="job" type="button" @click="cancel">暂停识别</button>
+    <button v-if="job" type="button" class="button secondary" @click="cancel">暂停识别</button>
   </section>
 </template>

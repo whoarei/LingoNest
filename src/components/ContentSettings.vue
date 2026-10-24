@@ -68,10 +68,10 @@ async function clear(kind: ContentKind) {
 }
 </script>
 <template>
-  <section class="section-panel content-settings">
+  <section class="section-panel content-settings" aria-labelledby="content-settings-title">
     <div class="section-heading">
       <div>
-        <h2>识别与课程生成模型</h2>
+        <h2 id="content-settings-title">识别与课程生成模型</h2>
         <p class="field-help">
           使用兼容 Chat Completions
           的服务。文字识别需要支持图片输入的模型，课程生成需要文字模型。

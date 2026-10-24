@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
   <section class="speech-settings" aria-labelledby="speech-title">
     <div class="section-heading">
       <div>
-        <h3 id="speech-title">语音模型与朗读配置</h3>
+        <h2 id="speech-title">语音模型与朗读配置</h2>
         <p>
           在此保存模型、音色和语速；每门课程的音频在家长空间的课程管理中准备。
         </p>
@@ -229,6 +229,7 @@ onBeforeUnmount(() => {
             :key="speed"
             type="button"
             class="button secondary compact"
+            :aria-pressed="Number(form.speed) === speed"
             @click="form.speed = speed"
           >
             {{ speed }}×

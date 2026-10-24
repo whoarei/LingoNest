@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import type { ModeSelection } from "../platform/mode-selection";
 const props = defineProps<{ selection: ModeSelection; authorize: (label: string, action: () => Promise<void>) => Promise<void> }>();
 const selection = props.selection;
@@ -11,14 +11,29 @@ async function choose(id: string) {
     catch (failure) { error.value = failure instanceof Error ? failure.message : String(failure); }
   });
 }
+async function move(event: KeyboardEvent, index: number) {
+  const count = selection.modes.length;
+  if (!count || !["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? count - 1
+    : (index + (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : -1) + count) % count;
+  const button = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next];
+  if (!button || button.disabled) return;
+  button.focus();
+  await choose(selection.modes[next]!.id);
+  await nextTick();
+  if (button.isConnected && !button.disabled) button.focus();
+}
 </script>
 <template>
   <section class="course-mode-settings" aria-labelledby="global-course-mode-title">
     <h2 id="global-course-mode-title">课程模式</h2>
     <p>每次只向孩子开放一个模式，统一作用于这台设备上的所有课程和孩子档案。</p>
     <div role="radiogroup" aria-label="全局课程模式" class="mode-choices">
-      <button v-for="mode in selection.modes" :key="mode.id" type="button" role="radio"
+      <button v-for="(mode, index) in selection.modes" :key="mode.id" type="button" role="radio"
         :aria-checked="selection.activeModeId.value === mode.id" :disabled="selection.busy.value"
+        :tabindex="selection.activeModeId.value === mode.id || !selection.modes.some(item => item.id === selection.activeModeId.value) && index === 0 ? 0 : -1"
+        @keydown="move($event, index)"
         @click="choose(mode.id)">
         <strong>{{ mode.title }}</strong>
         <span>{{ selection.activeModeId.value === mode.id ? '当前开放' : '切换到此模式' }}</span>
@@ -35,10 +50,11 @@ async function choose(id: string) {
 .course-mode-settings h2 { margin: 0 0 10px; }
 .course-mode-settings p { margin: 10px 0; line-height: 1.65; }
 .mode-choices { display: grid; gap: 12px; margin: 20px 0; }
-.mode-choices button { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 16px; border: 1px solid #bccbbf; border-radius: 12px; text-align: left; background: white; color: #293e33; font: inherit; cursor: pointer; }
-.mode-choices button[aria-checked="true"] { border: 2px solid #267267; background: #edf4ef; }
-.mode-choices span { margin-left: 12px; font-size: 13px; }
-.mode-choices button:focus-visible { outline: 3px solid #d8a577; outline-offset: 3px; }
+.mode-choices button { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 60px; padding: 16px; border: 2px solid #dce3db; border-radius: 12px; text-align: left; background: white; color: #293e33; font: inherit; cursor: pointer; }
+.mode-choices button[aria-checked="true"] { border-color: #254e3d; background: #edf4ef; }
+.mode-choices span { font-size: 13px; color: #617064; }
+.mode-choices button[aria-checked="true"] span { color: #254e3d; font-weight: 650; }
+.mode-choices button:focus-visible { outline: 3px solid #a86534; outline-offset: 3px; }
 .mode-choices button:disabled { opacity: .6; }
 .mode-note { color: #69776e; font-size: 13px; }
 </style>

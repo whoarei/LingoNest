@@ -9,7 +9,9 @@ const lessons = computed(() => new Map(props.pkg.levels.map(level => [level.id, 
 </script>
 <template>
   <ol class="passage-levels" aria-label="课程路径">
-    <li v-for="(level, index) in pkg.levels" :key="level.id" class="passage-card">
+    <li v-for="(level, index) in pkg.levels" :key="level.id" class="passage-card"
+      :class="{ 'level-completed': completed.includes(level.id) }"
+      :aria-current="!completed.includes(level.id) && index === completed.length ? 'step' : undefined">
       <span class="level-number">{{ completed.includes(level.id) ? '✓' : index + 1 }}</span>
       <div><h2>{{ level.title }}</h2><p>{{ completed.includes(level.id) ? '路径已完成' : index === completed.length ? '下一小步' : '前面关卡完成后开放' }}</p>
         <template v-if="hasCurriculum(pkg)"><p>{{ lessons.get(level.id)!.length }} / 3 小课已完成</p>

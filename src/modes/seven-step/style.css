@@ -7,7 +7,7 @@
   line-height: 1.65;
   --green: #254e3d;
   --orange: #bd7047;
-  --muted: #7b827a;
+  --muted: #637064;
   --line: #e6e8dd;
 }
 .seven-step-mode, .seven-step-mode * {
@@ -37,7 +37,7 @@
 .seven-step-mode button:focus-visible,
 .seven-step-mode input:focus-visible,
 .seven-step-mode textarea:focus-visible {
-  outline: 3px solid #d8a577;
+  outline: 3px solid #a86534;
   outline-offset: 3px;
 }
 .seven-step-mode input,
@@ -204,7 +204,7 @@
   font-size: 10px;
   letter-spacing: 2px;
   font-weight: 700;
-  color: #8a8d7e;
+  color: var(--muted);
   display: block;
   margin-bottom: 9px;
 }
@@ -470,7 +470,7 @@
   display: block;
 }
 .seven-step-mode .stage-copy small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   display: block;
   margin-top: 3px;
@@ -478,11 +478,12 @@
 }
 .seven-step-mode .stage-locked .stage-number {
   background: #eeefe8;
-  color: #a1a698;
+  color: #65715e;
 }
 .seven-step-mode .stage-locked .stage-copy {
-  color: #848a7e;
+  color: #657061;
 }
+.seven-step-mode .stage-lock { color:#657061; display:flex; align-items:center; }
 .seven-step-mode .stage-status {
   flex-shrink: 0;
 }
@@ -510,11 +511,11 @@
 }
 .seven-step-mode .amber {
   background: #f6ecda;
-  color: #997235;
+  color: #6c542c;
 }
 .seven-step-mode .neutral {
   background: #eeeee7;
-  color: #85877c;
+  color: var(--muted);
 }
 .seven-step-mode .home-aside {
   display: flex;
@@ -545,7 +546,7 @@
   font-size: 18px;
 }
 .seven-step-mode .note-card p {
-  color: #81816e;
+  color: #58664f;
   font-size: 13px;
   line-height: 1.95;
 }
@@ -557,7 +558,7 @@
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: #6e7e67;
+  color: #58664f;
   font-weight: 600;
 }
 .seven-step-mode .note-card .small-label {
@@ -744,7 +745,7 @@
 }
 .seven-step-mode .quiet-note {
   font-size: 12px;
-  color: #939688;
+  color: var(--muted);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -803,6 +804,7 @@
 }
 .seven-step-mode .lesson-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -817,7 +819,7 @@
 }
 .seven-step-mode .segmented button {
   background: transparent;
-  color: #858c7c;
+  color: #59674f;
   border-radius: 8px;
   font-size: 12px;
   padding: 8px 18px;
@@ -850,7 +852,7 @@
   height: 45px;
   display: grid;
   place-items: center;
-  color: #64805a;
+  color: #4b623f;
   font-size: 19px;
   font-family: Georgia, serif;
   font-style: italic;
@@ -886,14 +888,14 @@
   background: #eee8d8;
   display: grid;
   place-items: center;
-  color: #9b855f;
+  color: #6c542c;
   font-size: 12px;
   font-weight: 650;
   flex-shrink: 0;
 }
 .seven-step-mode .dialogue-list li:nth-child(even) .speaker-avatar {
   background: #e5ecdf;
-  color: #6e8460;
+  color: #4b623f;
 }
 .seven-step-mode .dialogue-content {
   min-width: 0;
@@ -901,7 +903,7 @@
 }
 .seven-step-mode .speaker-name {
   font-size: 11px;
-  color: #8e9687;
+  color: var(--muted);
 }
 .seven-step-mode .english-text {
   font-family: "Segoe UI", Arial, sans-serif;
@@ -916,7 +918,7 @@
 }
 .seven-step-mode .translation {
   font-size: 12px;
-  color: #969a8e;
+  color: var(--muted);
   line-height: 1.8;
   margin-top: 5px;
 }
@@ -943,7 +945,7 @@
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #65745c;
+  color: #506044;
 }
 .seven-step-mode .confirm-course .button {
   flex-shrink: 0;
@@ -951,7 +953,7 @@
 }
 .seven-step-mode .inline-note {
   font-size: 12px;
-  color: #9a8150;
+  color: #6c542c;
   background: #f7efdc;
   border-radius: 9px;
   padding: 12px 14px;
@@ -967,12 +969,12 @@
   align-items: center;
   gap: 15px;
   font-size: 12px;
-  color: #84907b;
+  color: var(--muted);
   margin-bottom: 15px;
 }
 .seven-step-mode .practice-counter {
   font-variant-numeric: tabular-nums;
-  color: #657b5f;
+  color: var(--muted);
 }
 .seven-step-mode .progress-track {
   height: 5px;
@@ -999,7 +1001,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #83926f;
+  color: #506044;
   background: #edf0e5;
   border-radius: 8px;
   padding: 7px 11px;
@@ -1013,7 +1015,7 @@
 .seven-step-mode .exercise-prompt {
   margin: 14px 0 27px;
   font-size: 19px;
-  color: #78866c;
+  color: #58664f;
   white-space: pre-line;
   line-height: 1.8;
   overflow-wrap: anywhere;
@@ -1055,7 +1057,7 @@
   height: 28px;
   border-radius: 8px;
   background: #edeedf;
-  color: #9ba287;
+  color: #59674f;
   flex-shrink: 0;
 }
 .seven-step-mode .selected .option-letter {
@@ -1067,7 +1069,7 @@
 }
 .seven-step-mode .written-answer label {
   font-size: 12px;
-  color: #869379;
+  color: var(--muted);
   display: block;
   margin-bottom: 9px;
 }
@@ -1081,12 +1083,12 @@
 }
 .seven-step-mode .written-answer input::placeholder,
 .seven-step-mode .written-answer textarea::placeholder {
-  color: #a3ad98;
+  color: var(--muted);
   font-size: 16px;
 }
 .seven-step-mode .field-help {
-  font-size: 11px;
-  color: #919b82;
+  font-size: 13px;
+  color: var(--muted);
   margin-top: 9px;
   line-height: 1.75;
 }
@@ -1107,14 +1109,14 @@
   border-radius: 12px;
   padding: 17px;
   margin-top: 20px;
-  color: #997c40;
+  color: #6c542c;
   font-size: 13px;
 }
 .seven-step-mode .hint-box small {
   display: block;
   margin-top: 7px;
-  font-size: 11px;
-  color: #a68e5f;
+  font-size: 13px;
+  color: #6c542c;
 }
 .seven-step-mode .hint-box svg {
   margin-top: 2px;
@@ -2092,7 +2094,7 @@
     font-size: 13px;
   }
   .seven-step-mode .stage-copy small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .seven-step-mode .stage-status .tag {
     font-size: 8px;
@@ -2175,8 +2177,8 @@
   }
   .seven-step-mode .segmented button {
     padding: 7px 12px;
-    font-size: 10px;
-    min-height: 36px;
+    font-size: 13px;
+    min-height: 44px;
   }
   .seven-step-mode .lesson-toolbar > .text-button {
     font-size: 10px;
@@ -2214,18 +2216,18 @@
     font-size: 10px;
   }
   .seven-step-mode .speaker-name {
-    font-size: 10px;
+    font-size: 12px;
   }
   .seven-step-mode .dialogue-content .english-text {
     font-size: 16px;
     line-height: 1.7;
   }
   .seven-step-mode .translation {
-    font-size: 11px;
+    font-size: 13px;
   }
   .seven-step-mode .dialogue-list .icon-button {
-    width: 26px;
-    height: 29px;
+    width: 44px;
+    height: 44px;
   }
   .seven-step-mode .dialogue-list .icon-button svg {
     width: 16px;
@@ -2247,7 +2249,7 @@
   }
   .seven-step-mode .practice-top {
     gap: 9px;
-    font-size: 10px;
+    font-size: 13px;
     margin-bottom: 11px;
   }
   .seven-step-mode .practice-top .text-button {
@@ -2310,17 +2312,17 @@
     margin-top: 26px;
   }
   .seven-step-mode .exercise-actions .text-button {
-    font-size: 11px;
+    font-size: 14px;
     gap: 5px;
   }
   .seven-step-mode .exercise-actions .button {
     padding: 12px 15px;
-    font-size: 12px;
+    font-size: 14px;
     gap: 6px;
-    min-height: 43px;
+    min-height: 44px;
   }
   .seven-step-mode .exercise-actions .small {
-    font-size: 10px;
+    font-size: 13px;
   }
   .seven-step-mode .audio-prompt {
     padding: 10px 12px;
@@ -2770,7 +2772,7 @@
     font-size: 10px;
   }
   .seven-step-mode .stage-copy small {
-    font-size: 11px;
+    font-size: 12px;
   }
   .seven-step-mode .quick-stats small {
     font-size: 10px;
@@ -2787,7 +2789,7 @@
     font-size: 11px;
   }
   .seven-step-mode .exercise-actions .small {
-    font-size: 11px;
+    font-size: 13px;
   }
 }
 .seven-step-mode .speech-settings {
@@ -3979,7 +3981,7 @@
 .seven-step-mode .deleted-course-actions .text-button { font-size: 13px; min-height: 40px; padding: 0; }
 @media (prefers-reduced-motion: reduce) { .seven-step-mode .swipe-course-content { transition: none; } }
 .seven-step-mode .home-greeting { display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; margin:0 0 14px; font-size:19px; }
-.seven-step-mode .home-greeting small { color:#66776d; font-weight:400; font-size:14px; }
+.seven-step-mode .home-greeting small { color:#617064; font-weight:400; font-size:14px; }
 .seven-step-mode .home-page .hero-card { min-height:0; margin-bottom:20px; padding:22px 26px; }
 .seven-step-mode .home-page .hero-copy { padding:0; max-width:calc(100% - 105px); }
 .seven-step-mode .home-page .hero-card h2 { margin:7px 0; font-size:27px; }

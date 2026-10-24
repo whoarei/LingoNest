@@ -22,6 +22,6 @@ function enter(event: KeyboardEvent) { if (!event.isComposing && event.keyCode !
       <div class="passage-tokens"><button v-for="token in tokens" :key="token!.id" type="button" :aria-pressed="response.selectedIds.includes(token!.id)" @click="toggle(token!.id)">{{ token!.text }}</button></div>
       <p class="field-help">点已选词块可以撤回。</p>
     </template>
-    <div v-else class="passage-choices"><button v-for="option in options" :key="option!.id" type="button" :aria-pressed="response.selectedIds.includes(option!.id)" @click="choose(option!.id)">{{ option!.text }}</button></div>
+    <div v-else class="passage-choices"><button v-for="option in options" :key="option!.id" type="button" :aria-pressed="response.selectedIds.includes(option!.id)" @click="choose(option!.id)"><span>{{ option!.text }}</span><span v-if="response.selectedIds.includes(option!.id)" class="passage-option-check" aria-hidden="true">✓</span></button></div>
   </fieldset>
 </template>

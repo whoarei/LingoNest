@@ -8,7 +8,7 @@
 .passage-path-mode button:disabled { opacity:.5; cursor:default; }
 .passage-path-mode button.primary,.passage-path-mode .primary { background:#237568; color:#fff; border-color:#237568; }
 .passage-path-mode button[aria-pressed="true"] { background:#d9eee4; border-color:#237568; box-shadow:inset 0 0 0 1px #237568; }
-.passage-path-mode input:not([type="checkbox"]),.passage-path-mode textarea,.passage-path-mode select { width:100%; display:block; min-height:44px; padding:10px; margin:6px 0 12px; border:1px solid #b8ccc3; border-radius:9px; background:#fff; color:#263c3b; }
+.passage-path-mode input:not([type="checkbox"]):not([type="radio"]),.passage-path-mode textarea,.passage-path-mode select { width:100%; display:block; min-height:44px; padding:10px; margin:6px 0 12px; border:1px solid #b8ccc3; border-radius:9px; background:#fff; color:#263c3b; font-size:16px; }
 .passage-path-mode label { display:block; }
 .passage-path-mode fieldset { border:0; padding:0; margin:0; min-width:0; }
 .passage-path-mode .passage-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:20px; }
@@ -33,9 +33,20 @@
 .passage-path-mode .passage-note,.passage-path-mode .inline-note { padding:14px; background:#f4f2e4; border-radius:12px; }
 .passage-path-mode .passage-answer { margin:20px 0; }
 .passage-path-mode .passage-choices { display:grid; gap:12px; }
-.passage-path-mode .passage-choices button { text-align:left; }
+.passage-path-mode .passage-choices button { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:56px; text-align:left; }
+.passage-path-mode .passage-choices button>span:first-child { min-width:0; }
+.passage-path-mode .passage-option-check { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; flex-shrink:0; background:#254e3d; color:white; }
 .passage-path-mode .passage-selected { border:1px dashed #93b7a8; padding:16px; min-height:64px; margin-bottom:12px; }
-.passage-path-mode .passage-feedback { padding:18px; margin-top:18px; background:#e8f4e8; border-radius:14px; }
+.passage-path-mode .passage-feedback { padding:18px; margin-top:18px; background:#edf1ec; border:1px solid #ccd7c6; border-radius:14px; }
+.passage-path-mode .passage-feedback.is-correct { background:#e8f4e8; border-color:#a8c9a8; }
+.passage-path-mode .passage-feedback.needs-practice { background:#fff1e5; border-color:#d9ae85; }
+.passage-path-mode .passage-progress { display:block; width:100%; height:8px; margin:0 0 24px; border:0; border-radius:8px; overflow:hidden; appearance:none; background:#e5ecdf; accent-color:#254e3d; }
+.passage-path-mode .passage-progress::-webkit-progress-bar { background:#e5ecdf; border-radius:8px; }
+.passage-path-mode .passage-progress::-webkit-progress-value { background:#254e3d; border-radius:8px; }
+.passage-path-mode .passage-progress::-moz-progress-bar { background:#254e3d; border-radius:8px; }
+.passage-path-mode .passage-levels>li[aria-current="step"] { border-color:#739780; background:#f3f7ef; }
+.passage-path-mode .passage-levels>li[aria-current="step"]>.level-number,
+.passage-path-mode .level-completed>.level-number { background:#254e3d; color:#fffef9; }
 .passage-path-mode .passage-turn { padding:14px 0; border-bottom:1px solid #e0e9df; }
 .passage-path-mode .passage-check { margin:18px 0; }
 .passage-path-mode .passage-check input { width:20px; height:20px; vertical-align:middle; margin-right:8px; }
@@ -59,7 +70,7 @@
 .passage-path-mode .passage-round-summary>.primary { margin-right:12px; }
 @media(max-width:600px) {
   .passage-path-mode .passage-practice { padding-bottom:100px; }
-  .passage-path-mode .passage-submit-actions { position:fixed; bottom:0; left:0; right:0; z-index:120; padding:12px 16px; background:#fffef9; border-top:1px solid #dfe5d9; justify-content:center; box-shadow:0 -4px 16px #20392c12; }
+  .passage-path-mode .passage-submit-actions { position:fixed; bottom:0; left:0; right:0; z-index:120; margin:0; padding:12px 16px; padding-bottom:max(12px,env(safe-area-inset-bottom)); background:#fffef9; border-top:1px solid #dfe5d9; justify-content:center; box-shadow:0 -4px 16px #20392c12; }
   .passage-path-mode .passage-submit-actions button { padding:10px 12px; }
 }
 .passage-path-mode .passage-preview-backdrop { position:fixed; top:0; right:0; bottom:0; left:0; z-index:10020; background:#1c352b80; padding:20px; display:flex; align-items:center; justify-content:center; }
@@ -67,13 +78,14 @@
 .passage-path-mode .passage-review-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:16px 0; }
 .passage-path-mode .passage-review-groups select { width:100%; }
 .passage-path-mode .passage-selected { display:flex; flex-wrap:wrap; align-items:center; }
-.passage-path-mode .passage-selected button { border:0; background:transparent; padding:7px 9px; margin:0 2px 4px 0; }
+.passage-path-mode .passage-selected button { border:1px solid #b8ccc3; background:#e8f1e5; padding:7px 10px; margin:0 6px 6px 0; }
 .passage-path-mode .passage-round-details { margin:24px 0 12px; font-size:14px; color:#536c5d; }
 .passage-path-mode .passage-round-details summary { cursor:pointer; padding:8px 0; }
 .passage-path-mode .passage-lesson-list { padding-left:18px; margin:12px 0 0; }
 .passage-path-mode .passage-lesson-list li { flex-wrap:wrap; margin:8px 0; gap:8px; }
 .passage-path-mode .passage-oral { margin:16px 0; }
 .passage-path-mode .passage-oral > button { margin:0 8px 12px 0; }
-.passage-path-mode .passage-oral input[type="radio"] { display:inline-block; width:20px; height:20px; min-height:20px; margin:0 8px 0 0; vertical-align:middle; }
+.passage-path-mode .passage-oral input[type="radio"] { display:inline-block; width:20px; height:20px; min-height:20px; padding:0; margin:0 10px 0 0; vertical-align:middle; accent-color:#254e3d; }
+.passage-path-mode .passage-check { min-height:44px; display:flex; align-items:center; }
 .passage-path-mode .passage-hero h2 { font-size:26px; margin:8px 0; }
 @media(max-width:480px) { .passage-path-mode .passage-preview-backdrop { padding:12px; } .passage-path-mode .passage-preview { max-height:calc(100vh - 24px); } .passage-path-mode .passage-review-groups { grid-template-columns:1fr; } }

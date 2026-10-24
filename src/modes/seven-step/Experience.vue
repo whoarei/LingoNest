@@ -355,8 +355,8 @@ function shortDate(value: string) {
                 ><Icon
                   v-else-if="stage.available && app.confirmed"
                   name="chevron"
-                  :size="18" /><span v-else class="lock-dot"
-              /></span>
+                  :size="18" /><span v-else class="stage-lock"><Icon name="lock" :size="16" /><span class="sr-only">{{ app.confirmed ? '完成前面的步骤后开放' : '核对课文后开放' }}</span></span
+              ></span>
             </button>
           </div>
         </section>

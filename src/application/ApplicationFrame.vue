@@ -528,7 +528,7 @@ void initialize();
 </script>
 
 <template>
-  <div class="lingonest-app" :class="{ 'no-flex-gap': noFlexGap }" :aria-busy="initializing || busy || selection.busy.value">
+  <div class="lingonest-app" :class="{ 'no-flex-gap': noFlexGap, 'has-global-error': !!error }" :aria-busy="initializing || busy || selection.busy.value">
     <header v-if="!focused" class="application-topbar">
       <button class="application-brand" :disabled="locked" @click="parent ? go('overview') : go('learn')">
         <span class="application-logo">
@@ -843,7 +843,7 @@ void initialize();
         <section v-for="(detail, index) in selectedRecord.details" :key="index" class="frame-section"><h2>{{ detail.label }}</h2><p class="frame-record-value">{{ detail.value }}</p></section>
         <button class="frame-button secondary" @click="openPlugin(selectedRecord.modeId, 'report', selectedRecord.courseId)">查看模式报告</button>
       </main>
-      <main v-if="page === 'settings'" class="frame-page shared-content">
+      <main v-if="page === 'settings'" class="frame-page shared-content frame-settings">
         <div class="frame-page-heading">
           <div>
             <span class="frame-caption">统一应用设置</span>
@@ -851,6 +851,12 @@ void initialize();
           </div>
           <button class="frame-link" @click="go(returnPage)">{{ returnLabel }}</button>
         </div>
+        <nav class="frame-settings-nav" aria-label="设置分组">
+          <a href="#global-course-mode-title">课程模式</a>
+          <a href="#speech-title">语音与朗读</a>
+          <a href="#content-settings-title">识别与生成</a>
+          <a href="#data-maintenance-title">数据维护</a>
+        </nav>
         <section class="frame-section">
           <h2>孩子档案</h2>
           <button class="frame-button secondary" @click="go('profiles')">管理孩子档案</button>
@@ -859,7 +865,7 @@ void initialize();
         <SpeechSettings :speech="speechSettings" />
         <ContentSettings />
         <section class="frame-section">
-          <h2>本机数据维护</h2>
+          <h2 id="data-maintenance-title">本机数据维护</h2>
           <button v-if="!ready" class="frame-button secondary" :disabled="initializing" @click="initialize">重新读取应用数据</button>
           <p v-if="services.cleanupStatus.pending" role="status">{{ services.cleanupStatus.pending }} 项删除任务尚未完成，相关课程或档案暂停使用，可重试或在下次启动时继续。</p>
           <p v-if="services.cleanupStatus.error" role="alert">{{ services.cleanupStatus.error }}</p>
