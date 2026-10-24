@@ -1,9 +1,9 @@
 import type { DeletionParticipant, DeletionTarget, OwnedResource } from "../../platform/deletions";
 import type { SharedSnapshot } from "../../platform/shared-snapshot";
 import type { LocalState } from "../../../packages/learning-modes/seven-step/state";
-import { purgeCourse } from "../../../packages/learning-modes/seven-step/deletion";
+import { removeCourse } from "../../../packages/learning-modes/seven-step/deletion";
 import { makeCourseAudioSpec } from "../../../packages/learning-modes/seven-step/audio";
-import { starterRecord, type CourseRecord } from "../../../packages/learning-modes/seven-step/authoring";
+import type { CourseRecord } from "../../../packages/learning-modes/seven-step/authoring";
 
 function recordResources(record: CourseRecord): OwnedResource[] {
   const resources: OwnedResource[] = [...record.images, ...record.vocabularyImages].filter(image => image.path.startsWith("course-images/"))
@@ -24,39 +24,26 @@ export function sevenStepDeletionParticipant(store: SharedSnapshot<LocalState>):
     async prepare(target) {
       const state = await store.refresh();
       if (target.kind === "learner") {
-        if (!state.learners.some(item => item.id === target.id) && !state.pendingDeletions.includes(target.id)) throw Error("学习档案不存在。");
         return [{ kind: "learner-recordings", learnerId: target.id }, ...recordings(state, id => id === target.id, id => id === target.id)];
       }
-      if (target.id === starterRecord.id) throw Error("内置课程保留。");
       const record = state.courses.find(item => item.id === target.id);
-      const job = state.pendingCourseDeletions.find(item => item.record.id === target.id);
-      if (!job && !record?.deletedAt) throw Error("只能彻底删除已删除列表中的课程。");
-      const removed = record ?? job!.record;
-      const exerciseIds = new Set(removed.package?.exercises.map(item => item.id) ?? []);
-      return [...recordResources(removed), ...recordings(state, (_, exerciseId) => exerciseIds.has(exerciseId), (_, courseId) => courseId === target.id),
-        ...(job?.images.map(path => ({ kind: "image" as const, path })) ?? []), ...(job?.recordings.map(path => ({ kind: "recording" as const, path })) ?? [])];
+      const exerciseIds = new Set(record?.package?.exercises.map(item => item.id) ?? []);
+      return [...(record ? recordResources(record) : []), ...recordings(state, (_, exerciseId) => exerciseIds.has(exerciseId), (_, courseId) => courseId === target.id)];
     },
     async remove(target: DeletionTarget) {
       await store.update(state => {
         if (target.kind === "course") {
-          if (state.courses.some(item => item.id === target.id)) purgeCourse(state, target.id);
-          state.pendingCourseDeletions = state.pendingCourseDeletions.filter(job => job.record.id !== target.id);
+          removeCourse(state, target.id);
         } else {
-          state.learners = state.learners.filter(item => item.id !== target.id);
           state.events = state.events.filter(event => event.learnerId !== target.id);
           state.runs = state.runs.filter(run => run.learnerId !== target.id);
-          state.confirmedLearnerIds = state.confirmedLearnerIds.filter(id => id !== target.id);
           state.confirmedCourses = state.confirmedCourses.filter(item => item.learnerId !== target.id);
-          state.pendingDeletions = state.pendingDeletions.filter(id => id !== target.id);
-          delete state.learningCourseIds[target.id];
-          if (state.activeLearnerId === target.id) state.activeLearnerId = state.learners[0]?.id ?? null;
         }
       });
     },
     async retained() {
       const state = await store.refresh();
-      return [...state.courses.flatMap(recordResources), ...state.pendingCourseDeletions.flatMap(job => [...recordResources(job.record),
-        ...job.images.map(path => ({ kind: "image" as const, path })), ...job.recordings.map(path => ({ kind: "recording" as const, path }))]),
+      return [...state.courses.flatMap(recordResources),
         ...recordings(state, () => true, () => true)];
     },
   };

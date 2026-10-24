@@ -10,14 +10,11 @@ export class SnapshotRepository<TState> {
 
   constructor(
     private readonly codec: SnapshotCodec<TState>,
-    private readonly options: { nativeLegacy?: boolean } = {},
   ) {}
 
   async load(): Promise<TState> {
     const result = isAndroid
-      ? this.options.nativeLegacy
-        ? await native.loadState()
-        : await native.loadDocument({ key: this.codec.storageKey })
+      ? await native.loadDocument({ key: this.codec.storageKey })
       : await this.webRead();
     const state = result.payload === null
       ? this.codec.empty()
@@ -45,9 +42,7 @@ export class SnapshotRepository<TState> {
       throw new Error("学习记录已达到此预览版容量上限。");
     if (isAndroid) {
       const input = { expectedRevision: this.revision, payload };
-      const result = this.options.nativeLegacy
-        ? await native.saveState(input)
-        : await native.saveDocument({ ...input, key: this.codec.storageKey });
+      const result = await native.saveDocument({ ...input, key: this.codec.storageKey });
       this.revision = result.revision;
       this.stored = true;
     } else {

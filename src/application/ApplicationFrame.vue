@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onScopeDispose, provide, reactive, ref, shallowRef, watch } from "vue";
 import type { CatalogSnapshot, MaterialCourse } from "../../packages/learning-modes/catalog";
-import type { ModeOverview, ModeRecord } from "../../packages/learning-modes/contracts";
+import type { ModeOverview } from "../../packages/learning-modes/contracts";
 import { applicationServicesKey } from "./services";
 import { type ModeSurface } from "./workspace";
 import { createModeSelection, modeSelectionKey } from "../platform/mode-selection";
@@ -44,7 +44,13 @@ const managedId = ref<string | null>(null), detailTab = ref<"material" | "modes"
 const nickname = ref(""), rename = ref(""), creating = ref(false), deleted = ref(false), swipeId = ref<string | null>(null);
 const recordMode = ref(""), recordCourse = ref("");
 const recordPage = ref(1), recordPageSize = 50;
-const selectedRecord = shallowRef<(ModeRecord & { modeId: string }) | null>(null);
+const selectedRecordKey = ref<{ learnerId: string | null; modeId: string; id: string } | null>(null);
+const selectedRecord = computed(() => {
+    const key = selectedRecordKey.value;
+    if (!key || key.learnerId !== directory.value.activeLearnerId) return null;
+    const record = overviews.value[key.modeId]?.records.find(item => item.id === key.id);
+    return record ? { ...record, modeId: key.modeId } : null;
+});
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 function notify(message: string, kind: "error" | "status" = "status") {
     if (!message) return;
@@ -57,7 +63,7 @@ onScopeDispose(() => clearTimeout(noticeTimer));
 const returnPage = ref<Page>("learn"), exitPrompt = ref(false);
 const returnLabel = computed(() => returnPage.value === "plugin"
     ? surface.value === "authoring" ? "返回内容准备" : surface.value === "confirm" ? "返回口语确认" : "返回学习报告"
-    : ({ learn: "返回学习空间", courses: "返回课程列表", detail: "返回课程详情", profiles: "返回孩子档案", records: "返回学习记录" } as Partial<Record<Page, string>>)[returnPage.value] ?? "返回家长空间");
+    : ({ learn: "返回学习空间", courses: "返回课程列表", detail: "返回课程详情", profiles: "返回孩子档案", records: "返回学习记录", record: "返回作答详情" } as Partial<Record<Page, string>>)[returnPage.value] ?? "返回家长空间");
 const pendingAction = shallowRef<null | (() => Promise<void>)>(null), actionLabel = ref(""), adultAnswer = ref("");
 const adultDialog = ref<HTMLElement | null>(null), exitDialog = ref<HTMLElement | null>(null), deleteDialog = ref<HTMLElement | null>(null);
 const adultUnlocked = ref(false);
@@ -115,7 +121,7 @@ async function refresh() {
     const snapshot = await services.catalog.read();
     const results = await Promise.all(teachingModes.modes.map(async (mode) => {
         try {
-            return { id: mode.identity.id, value: await mode.readOverview?.(snapshot.activeLearnerId), error: "" };
+            return { id: mode.identity.id, value: await mode.readOverview?.(snapshot.activeLearnerId, snapshot.courses), error: "" };
         }
         catch (failure) {
             return { id: mode.identity.id, value: undefined, error: failure instanceof Error ? failure.message : String(failure) };
@@ -126,6 +132,11 @@ async function refresh() {
     directory.value = snapshot;
     overviews.value = Object.fromEntries(results.filter(item => item.value).map(item => [item.id, item.value!]));
     overviewErrors.value = Object.fromEntries(results.filter(item => item.error).map(item => [item.id, item.error]));
+    if (!selectedRecord.value) {
+        selectedRecordKey.value = null;
+        if (page.value === "record") page.value = "records";
+        if (returnPage.value === "record") returnPage.value = "records";
+    }
     rename.value = learner.value?.nickname ?? "";
 }
 async function prepareLeave() {
@@ -173,6 +184,7 @@ async function go(target: Page, nextParent = target === "learn" ? false : parent
             await refresh();
         await host.value?.refresh();
         if (target === "detail" && !managed.value) target = "courses";
+        if (target === "record" && !selectedRecord.value) target = "records";
         if (target === "learn") {
             pluginModeId.value = selection.activeModeId.value;
             surface.value = "learning";
@@ -261,7 +273,7 @@ async function openPlugin(modeId: string, target: ModeSurface, courseId = curren
 }
 async function openParent(target?: ModeSurface) {
     if (target)
-        await openPlugin(selection.activeModeId.value, target);
+        await openPlugin(pluginModeId.value, target, pluginCourseId.value ?? currentCourseId.value);
     else
         await enterParent();
 }
@@ -331,7 +343,15 @@ async function confirmDelete() {
     const target = deletion.value;
     if (!target || deleteName.value !== target.name)
         return;
-    if (await perform(() => target.kind === "learner" ? services.catalog.deleteLearner(target.id) : services.catalog.purgeCourse(target.id))) {
+    if (await perform(async () => {
+        try { await (target.kind === "learner" ? services.catalog.deleteLearner(target.id) : services.catalog.purgeCourse(target.id)); }
+        catch (failure) {
+            // A durable deletion can have committed some owners before failing.
+            await refresh().catch(() => {});
+            await host.value?.refresh().catch(() => {});
+            throw failure;
+        }
+    })) {
         deletion.value = null;
         notice.value = "已彻底删除。";
         if (page.value === "detail")
@@ -743,7 +763,7 @@ void (async () => {
             <p v-if="item.outcome"><span class="frame-badge">{{ item.outcome }}</span> {{ item.summary }}</p>
             <p>{{ date(item.at) }}·{{ courseTitle(item.courseId) }}·{{ titleForMode(item.modeId) }}</p>
           </div>
-          <button class="frame-link" @click="selectedRecord = item; go('record')">查看作答</button>
+          <button class="frame-link" @click="selectedRecordKey = { learnerId: directory.activeLearnerId, modeId: item.modeId, id: item.id }; go('record')">查看作答</button>
         </div>
         <p v-if="!records.length" class="frame-note">当前筛选下还没有作答记录。已有记录按孩子、课程和模式分别保存。</p>
         <nav v-if="recordPageCount > 1" class="frame-actions frame-pagination" aria-label="记录分页">
@@ -776,7 +796,9 @@ void (async () => {
         <ContentSettings />
         <section class="frame-section">
           <h2>本机数据维护</h2>
-          <button class="frame-button secondary" :disabled="locked" @click="perform(() => services.data.retryCleanup())">重试本机资源清理</button>
+          <p v-if="services.cleanupStatus.pending" role="status">{{ services.cleanupStatus.pending }} 项删除任务尚未完成，相关课程或档案暂停使用，可重试或在下次启动时继续。</p>
+          <p v-if="services.cleanupStatus.error" role="alert">{{ services.cleanupStatus.error }}</p>
+          <button class="frame-button secondary" :disabled="locked" @click="perform(() => services.retryCleanup())">重试本机资源清理</button>
         </section>
         <p class="frame-caption">课程、学习内容与历史记录保存在本机。切换模式保留各自进度。</p>
       </main>

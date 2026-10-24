@@ -52,7 +52,6 @@ import java.util.concurrent.Executors;
 public class LingoNativePlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
-    private NativeStateStore stateStore;
     private SpeechConfigStore speechConfigStore;
     private AiSpeechService aiSpeech;
     private AiSpeechService courseDownloader;
@@ -132,44 +131,12 @@ public class LingoNativePlugin extends Plugin {
                 }
             }
         }));
-        stateStore = new NativeStateStore(getContext().getApplicationContext());
         speechConfigStore = new SpeechConfigStore(getContext().getApplicationContext());
         try { aiSpeech = new AiSpeechService(getContext().getFilesDir()); } catch (IOException ignored) { /* Report through bridge, preserving learning state. */ }
         try { courseAudioStore = new CourseAudioStore(getContext().getFilesDir()); courseDownloader = new AiSpeechService(getContext().getFilesDir()); } catch (IOException ignored) { /* Existing learning remains available. */ }
         audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         ContextCompat.registerReceiver(getContext(), audioDisconnected,
             new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED);
-    }
-
-    @PluginMethod public void loadState(PluginCall call) {
-        storage.execute(() -> {
-            try {
-                NativeStateStore.State state = stateStore.load();
-                JSObject result = new JSObject();
-                result.put("revision", state.revision);
-                result.put("payload", state.payload == null ? JSONObject.NULL : state.payload);
-                call.resolve(result);
-            } catch (Exception error) { rejectStorage(call, error); }
-        });
-    }
-
-    @PluginMethod public void saveState(PluginCall call) {
-        Object revisionValue = call.getData().opt("expectedRevision");
-        String payload = call.getString("payload");
-        if (!(revisionValue instanceof Number)) {
-            call.reject("数据版本必须是整数。", "INVALID_ARGUMENT"); return;
-        }
-        double numericRevision = ((Number) revisionValue).doubleValue();
-        if (!Double.isFinite(numericRevision) || numericRevision < 0 ||
-            numericRevision >= NativeGuards.MAX_REVISION || numericRevision != Math.floor(numericRevision)) {
-            call.reject("数据版本无效。", "INVALID_ARGUMENT"); return;
-        }
-        storage.execute(() -> {
-            try {
-                long revision = stateStore.save((long) numericRevision, payload);
-                call.resolve(new JSObject().put("revision", revision));
-            } catch (Exception error) { rejectStorage(call, error); }
-        });
     }
 
     private void rejectStorage(PluginCall call, Exception error) {
@@ -870,7 +837,6 @@ public class LingoNativePlugin extends Plugin {
         stopSpeechInternal("AUDIO_INTERRUPTED", "应用已关闭。"); stopPlayer(); finishRecording("background");
         if (tts != null) { tts.shutdown(); tts = null; }
         getContext().unregisterReceiver(audioDisconnected);
-        storage.execute(() -> stateStore.close());
         storage.shutdown();
         speechWorker.shutdown();
         courseWorker.shutdown();

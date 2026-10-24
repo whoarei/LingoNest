@@ -1,3 +1,4 @@
+import { recordForMaterial } from "../../src/modes/seven-step/services";
 import { vi } from "vitest";
 import { createApplicationServices } from "../../src/application/services";
 import type { OwnedResource } from "../../src/platform/deletions";
@@ -5,13 +6,13 @@ import { compilePassagePackage, makePassageAudioManifest } from "../../packages/
 import { passageSourceFromMaterial } from "../../src/modes/passage-path/services";
 import { starterRecord } from "../../packages/learning-modes/seven-step/authoring";
 import type { RuntimeContext } from "../../packages/learning-modes/passage-path/model";
-import legacy from "./seven-step-legacy.json";
+import { seededDocuments } from "./application-state";
 import { fixtureDraft } from "./passage-path";
 
 export const image = { path: "course-images/12345678-1234-1234-1234-123456789abc.jpg", rotation: 0 as const };
 export const sharedImage = { path: "course-images/12345678-1234-1234-1234-123456789def.jpg", rotation: 90 as const };
 export function setupCatalog() {
-  const values = new Map([[legacy.storageKey, JSON.stringify({ revision: 7, payload: JSON.stringify(legacy.snapshot) })]]);
+  const values = seededDocuments();
   const control = { failWrite: (_key: string, _value: string) => false };
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => values.get(key) ?? null,
@@ -36,6 +37,8 @@ export async function beginShared(services: ReturnType<typeof createApplicationS
   const store = services.passage.createStore(() => ctx);
   await store.load();
   const pkg = await materialPackage(services, courseId);
+  const material = services.catalog.snapshot().courses.find(item => item.id === courseId)!;
+  await services.sevenStep.state.update(value => { value.courses.push(recordForMaterial(material)); });
   await store.publish(pkg, { reviewedAt: "2026-10-17T10:00:00.000Z", audioAssetIds: makePassageAudioManifest(pkg).assets.map(item => item.id) });
   await store.dispatch({ type: "start", sessionId: "session-a", seed: 7 });
   return { courseId, store, pkg, setContext: (next: RuntimeContext) => { ctx = next; }, getContext: () => ctx };

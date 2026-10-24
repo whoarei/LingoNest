@@ -69,7 +69,7 @@ test("learner can confirm a course, complete comprehension, resume and keep hint
   });
   await page.reload();
   const state = await page.evaluate(() =>
-    JSON.parse(JSON.parse(localStorage.getItem("lingonest.local.v1")!).payload),
+    JSON.parse(JSON.parse(localStorage.getItem("lingonest.seven-step.v1")!).payload),
   );
   const attempts = state.events.filter(
     (event: any) => event.type === "attempt",
@@ -116,7 +116,7 @@ test("the application focus layout confirms exit and preserves the unfinished se
   await expect(page.locator(".practice-page")).toBeVisible();
   await page.getByRole("button", { name: "保存并退出", exact: true }).click();
   await page.getByRole("button", { name: "保存进度并退出", exact: true }).click();
-  const state = await page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem("lingonest.local.v1")!).payload));
+  const state = await page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem("lingonest.seven-step.v1")!).payload));
   expect(state.events.filter((event: any) => event.type === "attempt")).toHaveLength(0);
   await page.getByRole("button", { name: "继续读懂故事" }).click();
   await expect(page.locator(".practice-page")).toBeVisible();
@@ -124,10 +124,10 @@ test("the application focus layout confirms exit and preserves the unfinished se
 
 test("corrupt local data is surfaced and preserved while application settings remain accessible", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(() => localStorage.setItem("lingonest.local.v1", "{bad-json")); await page.reload();
+  await page.evaluate(() => localStorage.setItem("lingonest.catalog.v1", "{bad-json")); await page.reload();
   await expect(page.getByRole("alert")).toContainText("无法读取本机数据");
-  expect(await page.evaluate(() => localStorage.getItem("lingonest.local.v1"))).toBe("{bad-json");
+  expect(await page.evaluate(() => localStorage.getItem("lingonest.catalog.v1"))).toBe("{bad-json");
   await page.getByRole("button", { name: "打开设置", exact: true }).click(); await adult(page);
   await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("lingonest.local.v1"))).toBe("{bad-json");
+  expect(await page.evaluate(() => localStorage.getItem("lingonest.catalog.v1"))).toBe("{bad-json");
 });

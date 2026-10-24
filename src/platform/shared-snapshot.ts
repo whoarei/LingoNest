@@ -17,7 +17,7 @@ export class MutationQueue {
   }
 }
 
-/** Owns the current snapshot. Mutations rebase on the latest committed revision. */
+/** Owns the current snapshot. Reads and mutations share one revision sequence. */
 export class SharedSnapshot<T> {
   private value: T | undefined;
   private loading: Promise<T> | undefined;
@@ -37,17 +37,26 @@ export class SharedSnapshot<T> {
     for (const listener of this.listeners) listener(this.snapshot());
   }
   load(): Promise<T> {
-    return this.loading ??= this.refresh();
+    return this.loading ??= this.refresh().catch(failure => {
+      this.loading = undefined;
+      throw failure;
+    });
   }
-  async refresh(): Promise<T> {
+  private async read(): Promise<T> {
     const value = await this.repository.load();
     this.codec.decode(JSON.stringify(value));
     this.publish(value);
     return this.snapshot();
   }
+  private enqueue(action: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(action);
+    this.tail = result.catch(() => {});
+    return result;
+  }
+  refresh(): Promise<T> { return this.enqueue(() => this.read()); }
   update(change: (value: T) => T | void | Promise<T | void>): Promise<T> {
-    const result = this.tail.then(async () => {
-      const current = await this.refresh(), before = JSON.stringify(current);
+    return this.enqueue(async () => {
+      const current = await this.read(), before = JSON.stringify(current);
       const next = (await change(current)) ?? current;
       this.codec.decode(JSON.stringify(next));
       if (JSON.stringify(next) !== before) {
@@ -56,7 +65,5 @@ export class SharedSnapshot<T> {
       }
       return this.snapshot();
     });
-    this.tail = result.catch(() => {});
-    return result;
   }
 }

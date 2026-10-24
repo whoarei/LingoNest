@@ -1,12 +1,13 @@
+import type { MaterialCourse } from "../../../packages/learning-modes/catalog";
+import { recordForMaterial } from "./services";
 import type { ModeOverview } from "../../../packages/learning-modes/contracts";
-import { starterRecord } from "../../../packages/learning-modes/seven-step/authoring";
 import { LocalRepository } from "./repository";
 import { projectLearning } from "../../../packages/learning-modes/seven-step/engine";
 import { makeCourseAudioSpec } from "../../../packages/learning-modes/seven-step/audio";
 
-export async function readOverview(learnerId: string | null): Promise<ModeOverview> {
+export async function readOverview(learnerId: string | null, materials: readonly MaterialCourse[]): Promise<ModeOverview> {
   const state = await new LocalRepository().load();
-  const courses = [starterRecord, ...state.courses];
+  const courses = materials.map(material => recordForMaterial(material, state.courses.find(item => item.id === material.id)));
   const attempts = state.events.filter(event => event.type === "attempt" && event.attempt.learnerId === learnerId);
   const projections = new Map(learnerId ? courses.filter(course => course.package).map(course =>
     [course.id, projectLearning(state.events, course.package!.exercises, learnerId, new Date().toISOString())]) : []);

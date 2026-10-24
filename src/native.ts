@@ -14,11 +14,6 @@ import type {
 export interface LingoNativeAPI {
   loadDocument(options: { key: string }): Promise<{ revision: number; payload: string | null }>;
   saveDocument(options: { key: string; expectedRevision: number; payload: string }): Promise<{ revision: number }>;
-  loadState(): Promise<{ revision: number; payload: string | null }>;
-  saveState(options: {
-    expectedRevision: number;
-    payload: string;
-  }): Promise<{ revision: number }>;
   speak(options: {
     text: string;
   }): Promise<{ cached?: boolean; source?: "ai" | "device" } | void>;

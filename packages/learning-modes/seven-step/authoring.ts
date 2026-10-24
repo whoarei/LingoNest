@@ -1,3 +1,4 @@
+import { starterMaterial } from "../../materials/starter";
 import type { Course, DialogueTurn } from "./model";
 import type {
   Exercise,
@@ -47,12 +48,8 @@ export const starterRecord: CourseRecord = {
   id: starter.id,
   title: starter.title,
   subtitle: starter.subtitle,
-  sourceText: starter.turns
-    .map((turn) => `${turn.speaker}: ${turn.text}`)
-    .join("\n"),
-  images: ["1000075731.jpg", "1000075732.jpg", "1000075733.jpg"].map(
-    (path) => ({ path: `/source/${path}`, rotation: 0 }),
-  ),
+  sourceText: starterMaterial.sourceText,
+  images: starterMaterial.images.map(image => ({ ...image })),
   vocabularyImages: [],
   vocabulary: [],
   status: "published",

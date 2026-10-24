@@ -2,6 +2,9 @@ import type { CourseAudioManifest, SnapshotCodec } from "../../packages/learning
 import { MutationQueue, SharedSnapshot } from "./shared-snapshot";
 
 export interface DeletionTarget { kind: "course" | "learner"; id: string }
+export function assertNotDeleted(deletions: DeletionCoordinator, target: DeletionTarget) {
+  if (deletions.isBlocked(target)) throw Error("该对象正在或已经彻底删除，不能写入旧内容。");
+}
 export type OwnedResource = { kind: "image" | "recording"; path: string }
   | { kind: "audio"; course: CourseAudioManifest }
   | { kind: "learner-recordings"; learnerId: string };
@@ -44,7 +47,7 @@ function validResource(value: unknown): value is OwnedResource {
     new Set(course.assets.map(asset => asset.id)).size === course.assets.length && new Set(course.assets.map(asset => asset.text)).size === course.assets.length;
 }
 export const deletionStateCodec: SnapshotCodec<DeletionState> = {
-  storageKey: "lingonest.deletions.v1",
+  storageKey: "lingonest.deletions.v2",
   empty: () => ({ formatVersion: 1, plans: [], completed: [] }),
   decode(payload) {
     const value = JSON.parse(payload) as DeletionState;
@@ -108,7 +111,12 @@ export class DeletionCoordinator {
   resume(): Promise<void> {
     return this.queue.run(async () => {
       await this.state.refresh();
-      for (const plan of this.state.snapshot().plans) await this.finish(plan.id);
+      const failures: string[] = [];
+      for (const plan of this.state.snapshot().plans) {
+        try { await this.finish(plan.id); }
+        catch (failure) { failures.push(failure instanceof Error ? failure.message : String(failure)); }
+      }
+      if (failures.length) throw Error(`${failures.length} 项删除任务未完成：${[...new Set(failures)].join("；")}`);
     });
   }
   private async finish(planId: string) {

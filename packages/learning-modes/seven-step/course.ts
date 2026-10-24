@@ -1,3 +1,4 @@
+import { starterMaterial } from "../../materials/starter";
 import type {
   Exercise,
   CellRef,
@@ -5,119 +6,107 @@ import type {
 } from "./model";
 import type { Course, StageView, DialogueTurn } from "./model";
 
+const sourceTurns = starterMaterial.sourceText.split("\n").map(line => {
+  const separator = line.indexOf(": "); return { speaker: line.slice(0, separator), text: line.slice(separator + 2) };
+});
 const turns: DialogueTurn[] = [
   {
     id: "t01",
     block: "A",
-    speaker: "Wang Tao",
-    text: "Look. We need new players for our basketball team. Who will join us?",
+    ...sourceTurns[0]!,
     translation: "看。我们的篮球队需要新队员。谁愿意加入我们？",
   },
   {
     id: "t02",
     block: "A",
-    speaker: "Chen Hai",
-    text: "I will. I like playing basketball.",
+    ...sourceTurns[1]!,
     translation: "我愿意。我喜欢打篮球。",
   },
   {
     id: "t03",
     block: "A",
-    speaker: "Wang Tao",
-    text: "Are you good at it?",
+    ...sourceTurns[2]!,
     translation: "你擅长打篮球吗？",
   },
   {
     id: "t04",
     block: "A",
-    speaker: "Chen Hai",
-    text: "Yes, I am. I often play basketball after school.",
+    ...sourceTurns[3]!,
     translation: "是的。我经常放学后打篮球。",
   },
   {
     id: "t05",
     block: "A",
-    speaker: "Wang Tao",
-    text: "Great!",
+    ...sourceTurns[4]!,
     translation: "太好了！",
   },
   {
     id: "t06",
     block: "B",
-    speaker: "Yang Ming",
-    text: "Hi, Ma Li! Will you join the football team?",
+    ...sourceTurns[5]!,
     translation: "你好，马丽！你愿意加入足球队吗？",
   },
   {
     id: "t07",
     block: "B",
-    speaker: "Ma Li",
-    text: "No, I won't. I'm not good at playing football.",
+    ...sourceTurns[6]!,
     translation: "不，我不愿意。我不擅长踢足球。",
   },
   {
     id: "t08",
     block: "B",
-    speaker: "Yang Ming",
-    text: "What's your favorite sport?",
+    ...sourceTurns[7]!,
     translation: "你最喜欢的运动是什么？",
   },
   {
     id: "t09",
     block: "B",
-    speaker: "Ma Li",
-    text: "My favorite sport is ping-pong.",
+    ...sourceTurns[8]!,
     translation: "我最喜欢的运动是乒乓球。",
   },
   {
     id: "t10",
     block: "B",
-    speaker: "Yang Ming",
-    text: "The ping-pong team is over there. You can go and have a look.",
+    ...sourceTurns[9]!,
     translation: "乒乓球队在那边。你可以去看一看。",
   },
   {
     id: "t11",
     block: "B",
-    speaker: "Ma Li",
-    text: "Thank you very much.",
+    ...sourceTurns[10]!,
     translation: "非常感谢。",
   },
   {
     id: "t12",
     block: "C",
-    speaker: "Ma Li",
-    text: "Is this the ping-pong team?",
+    ...sourceTurns[11]!,
     translation: "这里是乒乓球队吗？",
   },
   {
     id: "t13",
     block: "C",
-    speaker: "Xia Yiyi",
-    text: "Yes, it is. Will you join us?",
+    ...sourceTurns[12]!,
     translation: "是的。你愿意加入我们吗？",
   },
   {
     id: "t14",
     block: "C",
-    speaker: "Ma Li",
-    text: "Yes, I will. I want to learn more skills about playing ping-pong.",
+    ...sourceTurns[13]!,
     translation: "是的，我愿意。我想学习更多打乒乓球的技巧。",
   },
   {
     id: "t15",
     block: "C",
-    speaker: "Xia Yiyi",
-    text: "Great! You'll be a good player.",
+    ...sourceTurns[14]!,
     translation: "太好了！你会成为一名优秀的队员。",
   },
 ];
 
 export const course: Course = {
-  id: "starter.unit1.lesson1",
+  id: starterMaterial.id,
   version: "0.1.0",
-  title: "一起加入运动队",
-  subtitle: "Unit 1 · Lesson 1",
+  title: starterMaterial.title,
+  subtitle: starterMaterial.subtitle,
   description: "从读懂对话，到独立表达。每天一小步，让英语住进小窝。",
   turns,
 };

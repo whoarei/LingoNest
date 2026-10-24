@@ -28,7 +28,7 @@ test("a parent settings detour keeps an active passage question and releases a r
   await page.getByRole("button", { name: "请家长处理", exact: true }).click(); await adult(page);
   await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
   await page.evaluate(() => {
-    const key = "native-document:lingonest.passage-path.v1", document = JSON.parse(sessionStorage.getItem(key)!);
+    const key = "native-document:lingonest.passage-path.v2", document = JSON.parse(sessionStorage.getItem(key)!);
     const data = JSON.parse(document.payload); data.sessions[0].status = "retired";
     document.payload = JSON.stringify(data); document.revision++;
     sessionStorage.setItem(key, JSON.stringify(document));

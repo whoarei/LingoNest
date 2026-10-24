@@ -5,5 +5,5 @@ import { sevenStepIdentity } from "../../../packages/learning-modes/seven-step/i
 export const sevenStepRegistration: TeachingModeRegistration<Component> = {
   identity: sevenStepIdentity,
   loadExperience: async () => (await import("./Experience.vue")).default,
-  readOverview: async learnerId => (await import("./overview")).readOverview(learnerId),
+  readOverview: async (learnerId, materials) => (await import("./overview")).readOverview(learnerId, materials),
 };

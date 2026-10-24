@@ -1,6 +1,7 @@
 import { computed, ref, watch, getCurrentScope, getCurrentInstance, inject, onScopeDispose, type Ref } from "vue";
-import { createSevenStepServices, sevenStepServicesKey, type SevenStepServices } from "./services";
-import { assertNotDeleted, saveSevenStepCourse } from "./catalog";
+import { recordForMaterial, sevenStepServicesKey, type SevenStepServices } from "./services";
+import { assertNotDeleted } from "../../platform/deletions";
+import type { CatalogSnapshot } from "../../../packages/learning-modes/catalog";
 import type { DeletionTarget } from "../../platform/deletions";
 import { sevenStepIdentity } from "../../../packages/learning-modes/seven-step/identity";
 import { sevenStepCourseAccess } from "./course-access";
@@ -33,10 +34,7 @@ import {
 } from "../../../packages/learning-modes/seven-step/state";
 import { isAndroid, native } from "../../native";
 import { useSpeech } from "../../platform/speech";
-import {
-  archiveCourse,
-  restoreCourse as restoreArchivedCourse,
-} from "../../../packages/learning-modes/seven-step/deletion";
+
 
 const makeId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -48,9 +46,12 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>>; courseId?: Readonly<Ref<string | null>>; services?: SevenStepServices } = {}): LearningUI {
   let disposed = false;
-  const services = options.services ?? (getCurrentInstance() ? inject(sevenStepServicesKey, undefined) : undefined) ?? createSevenStepServices();
+  const connection = options.services ?? (getCurrentInstance() ? inject(sevenStepServicesKey, undefined) : undefined);
+  if (!connection) throw Error("七步学习服务未连接应用框架。");
+  const services: SevenStepServices = connection;
   const repository = services.state;
   const state = ref<LocalState>(emptyState());
+  const directory = ref<CatalogSnapshot>({ learners: [], activeLearnerId: null, courses: [], defaultCourseId: starterRecord.id, learningCourseIds: {} });
   const ready = ref(false),
     busy = ref(false),
     error = ref(""),
@@ -84,42 +85,34 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
   const tick = ref(new Date().toISOString());
   const deletionEpoch = ref(0);
   const unsubscribeDeletion = services.deletions.state.subscribe(() => { deletionEpoch.value++; });
-  const applySnapshot = (value: LocalState) => {
-    const oldLearner = state.value.activeLearnerId;
-    if (sessionId && (oldLearner !== value.activeLearnerId ||
-      state.value.learningCourseIds[oldLearner ?? ""] !== value.learningCourseIds[value.activeLearnerId ?? ""])) {
-      sessionId = null; run.value = []; index.value = 0; resetAnswer();
-    }
-    state.value = value;
-  };
+  const applySnapshot = (value: LocalState) => { state.value = value; };
   const unsubscribeState = repository.subscribe(applySnapshot);
-  const learners = computed(() => state.value.learners);
+  const applyCatalog = (value: CatalogSnapshot) => {
+    const oldId = directory.value.activeLearnerId;
+    if (sessionId && (oldId !== value.activeLearnerId || directory.value.learningCourseIds[oldId ?? ""] !== value.learningCourseIds[value.activeLearnerId ?? ""])) {
+      sessionId = null; run.value = []; index.value = 0; resetAnswer();
+      if (view.value === "practice") view.value = "home";
+    }
+    directory.value = value;
+  };
+  const unsubscribeCatalog = services.catalog.subscribe(applyCatalog);
+  const learners = computed(() => directory.value.learners);
   const learner = computed(() => {
     deletionEpoch.value;
-    return state.value.learners.find(l => l.id === state.value.activeLearnerId &&
-      !services.deletions.isBlocked({ kind: "learner", id: l.id })) ?? null;
+    return directory.value.learners.find(item => item.id === directory.value.activeLearnerId && !services.deletions.isBlocked({ kind: "learner", id: item.id })) ?? null;
   });
-  const courses = computed(() => [
-    starterRecord,
-    ...state.value.courses.filter((record) => !record.deletedAt),
-  ]);
-  const deletedCourses = computed(() =>
-    state.value.courses
-      .filter((record) => record.deletedAt)
-      .slice()
-      .sort((a, b) => b.deletedAt!.localeCompare(a.deletedAt!)),
-  );
-  const activeRecord = computed(
-    () =>
-      courses.value.find(
-        (record) =>
-          record.id === (options.courseId?.value ?? state.value.learningCourseIds[learner.value?.id ?? ""]),
-      ) ?? starterRecord,
-  );
+  const records = computed(() => directory.value.courses.map(material => recordForMaterial(material, state.value.courses.find(item => item.id === material.id))));
+  const courses = computed(() => records.value.filter(record => !record.deletedAt));
+  const deletedCourses = computed(() => records.value.filter(record => record.deletedAt).sort((a, b) => b.deletedAt!.localeCompare(a.deletedAt!)));
+  const activeRecord = computed(() => {
+    const scopedId = options.courseId?.value;
+    const id = scopedId ?? directory.value.learningCourseIds[learner.value?.id ?? ""] ?? directory.value.defaultCourseId;
+    return (scopedId ? records.value : courses.value).find(record => record.id === id) ?? null;
+  });
   const courseMode = computed(() => {
     deletionEpoch.value;
-    if (services.deletions.isBlocked({ kind: "course", id: activeRecord.value.id }) ||
-      state.value.activeLearnerId && services.deletions.isBlocked({ kind: "learner", id: state.value.activeLearnerId }))
+    if (!activeRecord.value || activeRecord.value.deletedAt || services.deletions.isBlocked({ kind: "course", id: activeRecord.value.id }) ||
+      directory.value.activeLearnerId && services.deletions.isBlocked({ kind: "learner", id: directory.value.activeLearnerId }))
       return { modeId: options.activeModeId?.value ?? sevenStepIdentity.id, status: "missing" as const, canLearn: false };
     return sevenStepCourseAccess(options.activeModeId?.value ?? sevenStepIdentity.id, activeRecord.value);
   });
@@ -130,11 +123,12 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     }
     return true;
   }
-  const course = computed(() => activeRecord.value.package?.course ?? {
-    id: activeRecord.value.id, version: "unpublished", title: activeRecord.value.title, subtitle: activeRecord.value.subtitle,
-    description: "请家长准备当前模式内容。", turns: [],
+  const course = computed(() => activeRecord.value?.package?.course ?? {
+    id: activeRecord.value?.id ?? options.courseId?.value ?? starterRecord.id, version: "unpublished",
+    title: activeRecord.value?.title ?? "课程已不可用", subtitle: activeRecord.value?.subtitle ?? "",
+    description: activeRecord.value ? "请家长准备当前模式内容。" : "这门课程已删除或无法读取，请返回课程列表。", turns: [],
   });
-  const exercises = computed(() => activeRecord.value.package?.exercises ?? []);
+  const exercises = computed(() => activeRecord.value?.package?.exercises ?? []);
   const speech = useSpeech(
     computed(() => makeCourseAudioSpec(course.value, exercises.value)),
   );
@@ -221,7 +215,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     };
   }
   const stages = computed(() =>
-    (activeRecord.value.package ? stageDefinitions : []).map((def, i) => {
+    (activeRecord.value?.package ? stageDefinitions : []).map((def, i) => {
       const progress = stageResults(def.id);
       const previousComplete = stageDefinitions
         .slice(0, i)
@@ -272,8 +266,9 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     learning = true,
   ): Promise<boolean> {
     if (!ready.value) return false;
-    const expectedLearner = state.value.activeLearnerId;
-    const expectedCourse = state.value.learningCourseIds[expectedLearner ?? ""];
+    const expectedLearner = directory.value.activeLearnerId;
+    const expectedCourse = directory.value.learningCourseIds[expectedLearner ?? ""];
+    const expectedScope = { courseId: course.value.id, version: course.value.version, modeId: options.activeModeId?.value };
     let ok = false;
     pendingWrites += 1;
     busy.value = true;
@@ -281,13 +276,17 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       busy.value = true;
       try {
         await services.queue.run(async () => {
-          await services.deletions.refresh();
+          await services.refreshCatalog();
           return repository.update(draft => {
-            if (draft.activeLearnerId !== expectedLearner || draft.learningCourseIds[expectedLearner ?? ""] !== expectedCourse)
+            const selection = services.catalog.selection();
+            if (selection.activeLearnerId !== expectedLearner || selection.learningCourseIds[expectedLearner ?? ""] !== expectedCourse)
               throw Error("学习上下文已变化，请重新选择后操作。");
             if (learning) {
               if (expectedLearner) assertNotDeleted(services.deletions, { kind: "learner", id: expectedLearner });
-              assertNotDeleted(services.deletions, { kind: "course", id: expectedCourse ?? starterRecord.id });
+              assertNotDeleted(services.deletions, { kind: "course", id: expectedScope.courseId });
+              if (!selection.availableCourseIds.includes(expectedScope.courseId)) throw Error("当前课程已不可用，请重新选择后操作。");
+              if (course.value.id !== expectedScope.courseId || course.value.version !== expectedScope.version || options.activeModeId?.value !== expectedScope.modeId)
+                throw Error("学习上下文已变化，请重新选择后操作。");
             }
             const priorCount = draft.events.length;
             change(draft);
@@ -341,45 +340,16 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       error.value = errorText(e);
     }
   }
-  async function addLearner(name: string) {
-    const initialView = view.value;
-    error.value = "";
-    const nickname = name.trim();
-    if (!nickname || nickname.length > 16) {
-      error.value = "请输入 1–16 个字的昵称。";
-      return;
-    }
-    if (state.value.learners.length >= 8) {
-      error.value = "此设备最多保留 8 个学习档案。";
-      return;
-    }
-    const id = makeId();
-    if (
-      await transaction((d) => {
-        assertNotDeleted(services.deletions, { kind: "learner", id });
-        d.learners.push({ id, nickname, createdAt: new Date().toISOString() });
-        d.activeLearnerId = id;
-      }, false)
-    )
-      if (initialView !== "parent" && view.value === initialView)
-        view.value = "home";
+  async function catalogAction(action: () => Promise<unknown>): Promise<boolean> {
+    pendingWrites++; busy.value = true; error.value = "";
+    try { await saveQueue; await action(); return true; }
+    catch (failure) { error.value = `保存未完成：${errorText(failure)}`; return false; }
+    finally { pendingWrites--; busy.value = pendingWrites > 0; }
   }
+  async function addLearner(name: string) { await catalogAction(() => services.catalog.addLearner(name)); }
   async function renameLearner(name: string) {
-    error.value = "";
-    const nickname = name.trim();
-    const id = learner.value?.id;
-    if (!id || !nickname || nickname.length > 16) {
-      error.value = "请输入 1–16 个字的昵称。";
-      return;
-    }
-    if (
-      await transaction((d) => {
-        const profile = d.learners.find((item) => item.id === id);
-        if (!profile) throw new Error("学习档案已变更，请重新选择。");
-        profile.nickname = nickname;
-      }, false)
-    )
-      notice.value = "昵称已更新，学习记录保留。";
+    const id = learner.value?.id; if (!id) return;
+    if (await catalogAction(() => services.catalog.renameLearner(id, name))) notice.value = "昵称已更新，学习记录保留。";
   }
   async function stopSpeech() {
     await operation(() => speech.stop());
@@ -411,18 +381,9 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     resetAnswer();
   }
   async function selectLearner(id: string) {
-    const initialView = view.value;
     if (id === learner.value?.id) return;
-    if (!state.value.learners.some((l) => l.id === id)) return;
-    await clearRun();
-    if (
-      await transaction((d) => {
-        assertNotDeleted(services.deletions, { kind: "learner", id });
-        d.activeLearnerId = id;
-      }, false)
-    )
-      if (initialView !== "parent" && view.value === initialView)
-        view.value = "home";
+    await clearRun(); await catalogAction(() => services.catalog.selectLearner(id));
+    if (view.value !== "parent") view.value = "home";
   }
   async function confirmCourse() {
     if (!canLearn()) return;
@@ -443,11 +404,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
             courseId: course.value.id,
             version: course.value.version,
           });
-        if (
-          course.value.id === starterRecord.id &&
-          !d.confirmedLearnerIds.includes(id)
-        )
-          d.confirmedLearnerIds.push(id);
+
       })
     )
       notice.value = "已确认本课原文，可以开始练习了。";
@@ -461,7 +418,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       error.value = errorText(failure);
       return false;
     }
-    return transaction(draft => saveSevenStepCourse(draft, copy, services.deletions), false);
+    return transaction(draft => services.saveCourse(draft, copy), false);
   }
   async function assignCourse(id: string): Promise<boolean> {
     error.value = "";
@@ -482,21 +439,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     }
     const learnerId = learner.value.id;
     await clearRun();
-    const saved = await transaction((d) => {
-      assertNotDeleted(services.deletions, { kind: "course", id });
-      assertNotDeleted(services.deletions, { kind: "learner", id: learnerId });
-      d.learningCourseIds[learnerId] = id;
-      if (
-        !d.confirmedCourses.some(
-          (item) => item.learnerId === learnerId && item.courseId === id,
-        )
-      )
-        d.confirmedCourses.push({
-          learnerId,
-          courseId: id,
-          version: record.package!.course.version,
-        });
-    }, false);
+    const saved = await catalogAction(() => services.catalog.assignCourse(learnerId, id));
     if (saved) notice.value = "已设为当前孩子的学习课程，原课程进度保留。";
     return saved;
   }
@@ -505,35 +448,13 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     if (await exposure(allExposureTargets.value)) view.value = "lesson";
   }
   async function deleteCourse(id: string): Promise<boolean> {
-    error.value = "";
-    if (view.value === "practice" || speech.courseGenerating.value) {
-      error.value = "请先退出练习或暂停音频生成，再删除课程。";
-      return false;
-    }
-    if (
-      !state.value.courses.some((item) => item.id === id && !item.deletedAt)
-    ) {
-      error.value = "只能删除自建课程，内置课程保留。";
-      return false;
-    }
-    await clearRun();
-    await speech.stop();
-    const saved = await transaction((d) => {
-      assertNotDeleted(services.deletions, { kind: "course", id });
-      archiveCourse(d, id);
-    }, false);
-    if (saved) {
-      notice.value = "课程已移到已删除，内容、音频与学习记录保留，可随时恢复。";
-    }
-    return saved;
+    if (view.value === "practice" || speech.courseGenerating.value) { error.value = "请先退出练习或暂停音频生成，再删除课程。"; return false; }
+    await clearRun(); await speech.stop();
+    const saved = await catalogAction(() => services.catalog.archiveCourse(id));
+    if (saved) notice.value = "课程已移到已删除，内容、音频与学习记录保留，可随时恢复。"; return saved;
   }
   async function restoreCourse(id: string): Promise<boolean> {
-    error.value = "";
-    const saved = await transaction((d) => {
-      assertNotDeleted(services.deletions, { kind: "course", id }); restoreArchivedCourse(d, id);
-    }, false);
-    if (saved) notice.value = "课程已恢复，原有学习进度和资源保留。";
-    return saved;
+    return catalogAction(() => services.catalog.restoreCourse(id));
   }
   let cleaningCourses = false;
   async function coordinatedDeletion(target: DeletionTarget): Promise<boolean> {
@@ -980,6 +901,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     .boot()
     .then(() => {
       if (disposed) return;
+      applyCatalog(services.catalog.snapshot());
       applySnapshot(repository.snapshot());
       ready.value = true;
       if (services.startupError) error.value = `本机资源清理未完成，可重试：${services.startupError}`;
@@ -999,7 +921,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
   if (getCurrentScope())
     onScopeDispose(() => {
       disposed = true;
-      unsubscribeState(); unsubscribeDeletion();
+      unsubscribeState(); unsubscribeDeletion(); unsubscribeCatalog();
       void recordingSubscription?.then((handle) => handle.remove()).catch(() => {});
     });
   return {
@@ -1017,7 +939,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     courses,
     deletedCourses,
     exercises,
-    sourceImages: computed(() => activeRecord.value.images),
+    sourceImages: computed(() => activeRecord.value?.images ?? []),
     saveCourse,
     assignCourse,
     deleteCourse,
@@ -1026,7 +948,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     retryCourseCleanup,
     pendingCourseCleanupCount: computed(() => {
       deletionEpoch.value;
-      return state.value.pendingCourseDeletions.length + state.value.pendingDeletions.length + services.deletions.pendingTargets().length;
+      return services.deletions.pendingTargets().length;
     }),
     confirmed,
     stages,

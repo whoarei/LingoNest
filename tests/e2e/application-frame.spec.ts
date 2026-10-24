@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { adult, manageCourse, navigate, parentSpace, passageSnapshot, seedApplication, snapshot, switchMode } from "./fixtures/application";
 import { starterRecord } from "../../packages/learning-modes/seven-step/authoring";
 
-test("one application frame keeps legacy data, navigation and historical reports through a mode round trip", async ({ page }) => {
+test("one application frame keeps seeded data, navigation and historical reports through a mode round trip", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
   await seedApplication(page); await page.goto("/");
   await expect(page.locator(".stage-list")).toBeVisible();

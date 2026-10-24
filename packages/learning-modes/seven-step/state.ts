@@ -1,4 +1,4 @@
-import type { LearnerProfile as Learner, SnapshotCodec } from "../contracts";
+import type { SnapshotCodec } from "../contracts";
 import type {
   LearningEvent,
   StageId,
@@ -11,22 +11,14 @@ import {
   validateCourseRecord,
   type CourseRecord,
 } from "./authoring";
-import type { CourseDeletion } from "./deletion";
 
-// M1 envelope, intentionally distinct from the full schemaVersion 2.0.0 course-package contract.
+/** Teaching payload only; shared identities and selection belong to the catalog. */
 export interface LocalState {
-  formatVersion: 2;
-  courseVersion: string;
-  learners: Learner[];
-  activeLearnerId: string | null;
-  confirmedLearnerIds: string[];
+  formatVersion: 1;
   events: LearningEvent[];
   lastObservedAt: string | null;
   runs: PracticeRun[];
-  pendingDeletions: string[];
-  pendingCourseDeletions: CourseDeletion[];
   courses: CourseRecord[];
-  learningCourseIds: Record<string, string>;
   confirmedCourses: { learnerId: string; courseId: string; version: string }[];
 }
 export interface PracticeRun {
@@ -44,18 +36,11 @@ export interface PracticeRun {
   purpose?: "independent";
 }
 export const emptyState = (): LocalState => ({
-  formatVersion: 2,
-  courseVersion: "0.1.0",
-  learners: [],
-  activeLearnerId: null,
-  confirmedLearnerIds: [],
+  formatVersion: 1,
   events: [],
   lastObservedAt: null,
   runs: [],
-  pendingDeletions: [],
-  pendingCourseDeletions: [],
   courses: [],
-  learningCourseIds: {},
   confirmedCourses: [],
 });
 const validText = (value: unknown): value is string =>
@@ -95,90 +80,12 @@ function validGrade(grade: GradeResult) {
 }
 export function decodeState(payload: string): LocalState {
   const s = JSON.parse(payload) as LocalState;
-  if (
-    (s as { formatVersion: number }).formatVersion === 1 &&
-    s.courseVersion === "0.1.0"
-  ) {
-    if (!Array.isArray(s.confirmedLearnerIds) || !Array.isArray(s.runs))
-      throw new Error("旧版学习档案格式不完整，已保留原数据。");
-    s.formatVersion = 2;
-    s.courses = [];
-    s.learningCourseIds = {};
-    s.confirmedCourses = s.confirmedLearnerIds.map((learnerId) => ({
-      learnerId,
-      courseId: starterRecord.id,
-      version: "0.1.0",
-    }));
-    s.runs.forEach((run) => {
-      run.courseId = starterRecord.id;
-    });
-  }
-  if (
-    s.formatVersion !== 2 ||
-    s.courseVersion !== "0.1.0" ||
-    !Array.isArray(s.learners) ||
-    !Array.isArray(s.events) ||
-    !Array.isArray(s.confirmedLearnerIds)
-  )
-    throw new Error("本地数据格式不受支持。为保护学习记录，已停止写入。");
-  if (
-    !Array.isArray(s.courses) ||
-    s.courses.length > 300 ||
-    s.courses.filter((record) => record && !record.deletedAt).length > 30 ||
-    !s.learningCourseIds ||
-    typeof s.learningCourseIds !== "object" ||
-    Array.isArray(s.learningCourseIds) ||
-    !Array.isArray(s.confirmedCourses)
-  )
-    throw new Error("课程库数据格式无效，已停止写入。");
+  if (!s || s.formatVersion !== 1 || !Array.isArray(s.courses) || s.courses.length > 300 ||
+    !Array.isArray(s.events) || !Array.isArray(s.runs) || !Array.isArray(s.confirmedCourses) ||
+    Object.keys(s).some(key => !["formatVersion", "courses", "events", "runs", "confirmedCourses", "lastObservedAt"].includes(key)))
+    throw Error("七步数据格式不受支持，已停止写入。");
   s.courses.forEach(validateCourseRecord);
-  // 0.1.5 snapshots predate durable course cleanup; retain the existing envelope version.
-  if (s.pendingCourseDeletions === undefined) s.pendingCourseDeletions = [];
-  if (
-    !Array.isArray(s.pendingCourseDeletions) ||
-    s.pendingCourseDeletions.length > 30
-  )
-    throw new Error("课程删除恢复记录无效。");
-  const cleanupIds = new Set<string>();
-  for (const job of s.pendingCourseDeletions) {
-    if (!job || !job.record) throw new Error("课程删除恢复记录无效。");
-    validateCourseRecord(job.record);
-    if (
-      cleanupIds.has(job.record.id) ||
-      s.courses.some((item) => item.id === job.record.id) ||
-      !Array.isArray(job.images) ||
-      job.images.length > 12 ||
-      job.images.some(
-        (path) =>
-          typeof path !== "string" ||
-          !/^course-images\/[a-f0-9-]{36}\.jpg$/.test(path) ||
-          ![...job.record.images, ...job.record.vocabularyImages].some(
-            (image) => image.path === path,
-          ) ||
-          s.courses.some((item) =>
-            [...item.images, ...item.vocabularyImages].some(
-              (image) => image.path === path,
-            ),
-          ),
-      ) ||
-      !Array.isArray(job.recordings) ||
-      job.recordings.length > 100000 ||
-      job.recordings.some(
-        (path) =>
-          typeof path !== "string" ||
-          !/^recordings\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\.m4a$/.test(
-            path,
-          ) ||
-          s.events.some(
-            (event) =>
-              event.type === "attempt" && event.attempt.recordingPath === path,
-          ) ||
-          s.runs.some((run) => run.recordingPath === path),
-      )
-    )
-      throw new Error("课程删除恢复记录无效。");
-    cleanupIds.add(job.record.id);
-  }
+  if (s.courses.some(record => record.deletedAt !== undefined)) throw Error("七步内容不能保存公共归档状态。");
   if (new Set(s.courses.map((record) => record.id)).size !== s.courses.length)
     throw new Error("课程标识重复。");
   const packages = [
@@ -188,62 +95,22 @@ export function decodeState(payload: string): LocalState {
       .map((record) => record.package!),
   ];
   const courseIds = new Set(packages.map((item) => item.course.id));
-  const availableCourseIds = new Set([
-    starterRecord.id,
-    ...s.courses
-      .filter((record) => !record.deletedAt)
-      .map((record) => record.id),
-  ]);
   const exercises = [
     ...starterExercises,
     ...packages.slice(1).flatMap((item) => item.exercises),
   ];
   const exerciseIds = new Set(exercises.map((item) => item.id));
   if (exerciseIds.size !== exercises.length) throw new Error("练习标识重复。");
-  if (!Array.isArray(s.runs) || !Array.isArray(s.pendingDeletions))
-    throw new Error("练习恢复数据格式不完整，已停止写入。");
   if (s.lastObservedAt !== null && !validTime(s.lastObservedAt))
     throw new Error("时间记录损坏，已停止写入。");
-  const ids = new Set<string>();
-  for (const l of s.learners) {
-    if (
-      !l ||
-      typeof l.id !== "string" ||
-      !/^[a-zA-Z0-9_-]+$/.test(l.id) ||
-      ids.has(l.id) ||
-      typeof l.nickname !== "string" ||
-      typeof l.createdAt !== "string"
-    )
-      throw new Error("学习档案损坏，已停止写入。");
-    ids.add(l.id);
-  }
-  if (
-    (s.activeLearnerId !== null && !ids.has(s.activeLearnerId)) ||
-    s.confirmedLearnerIds.some((id) => !ids.has(id))
-  )
-    throw new Error("学习档案引用无效，已停止写入。");
-  if (
-    Object.entries(s.learningCourseIds).some(
-      ([learnerId, courseId]) =>
-        !ids.has(learnerId) || !availableCourseIds.has(courseId),
-    ) ||
-    s.confirmedCourses.some(
-      (item) =>
-        !item ||
-        !ids.has(item.learnerId) ||
-        !packages.some(
-          (pack) =>
-            pack.course.id === item.courseId &&
-            pack.course.version === item.version,
-        ),
-    )
-  )
-    throw new Error("学习课程引用无效，已停止写入。");
+  if (s.confirmedCourses.some(item => !item || !validText(item.learnerId) ||
+    !packages.some(pack => pack.course.id === item.courseId && pack.course.version === item.version)))
+    throw Error("学习课程引用无效，已停止写入。");
   for (const run of s.runs) {
     if (
       !run ||
       !validText(run.id) ||
-      !ids.has(run.learnerId) ||
+      !validText(run.learnerId) ||
       !courseIds.has(run.courseId) ||
       !Array.isArray(run.exerciseIds) ||
       run.exerciseIds.some((id) => !exerciseIds.has(id)) ||
@@ -268,17 +135,11 @@ export function decodeState(payload: string): LocalState {
     )
       throw new Error("练习恢复记录损坏，已停止写入。");
   }
-  if (
-    s.pendingDeletions.some(
-      (id) => typeof id !== "string" || !/^[a-zA-Z0-9_-]+$/.test(id),
-    )
-  )
-    throw new Error("删除恢复记录损坏，已停止写入。");
   for (const event of s.events) {
     if (
       !event ||
       !["attempt", "review", "exposure"].includes(event.type) ||
-      !ids.has(event.learnerId) ||
+      !validText(event.learnerId) ||
       typeof event.id !== "string" ||
       !Number.isFinite(Date.parse(event.at))
     )
@@ -326,7 +187,7 @@ export function decodeState(payload: string): LocalState {
 }
 
 export const sevenStepStateCodec: SnapshotCodec<LocalState> = {
-  storageKey: "lingonest.local.v1",
+  storageKey: "lingonest.seven-step.v1",
   empty: emptyState,
   decode: decodeState,
 };

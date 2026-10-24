@@ -28,6 +28,7 @@ void (async () => { statuses.value = (await repository.load()).statuses; await r
   <main v-if="ready" class="frame-page test-adaptive-experience">
     <h1>测试自适应模式</h1><p>{{ selected.title }}</p>
     <template v-if="workspace.surface.value === 'authoring'">
+      <button class="frame-button" @click="workspace.openParent('authoring')">重新打开本模式准备</button>
       <button v-if="status === 'missing'" class="frame-button" @click="save('review')">模拟生成内容</button>
       <button v-if="status === 'review'" class="frame-button" @click="save('ready')">审核并开放测试内容</button>
       <p v-if="status === 'ready'">本课已审核，可以开始测试学习。</p>

@@ -77,69 +77,21 @@ describe("independent teaching mode contracts", () => {
 
   it("does not reset or overwrite an unreadable mode snapshot", async () => {
     const raw = JSON.stringify({ revision: 4, payload: '{"formatVersion":999}' });
-    values.set(legacy.storageKey, raw);
+    values.set(sevenStepMode.state.storageKey, raw);
     const repository = new SnapshotRepository(sevenStepMode.state);
     await expect(repository.load()).rejects.toThrow("不受支持");
     await expect(repository.save(sevenStepMode.state.empty())).rejects.toThrow("尚未加载");
-    expect(values.get(legacy.storageKey)).toBe(raw);
+    expect(values.get(sevenStepMode.state.storageKey)).toBe(raw);
   });
 });
 
-describe("pre-extraction seven-step compatibility", () => {
-  it("preserves the exact old snapshot through unload and reload, including course versions and unfinished progress", async () => {
-    const raw = JSON.stringify({ revision: 7, payload: JSON.stringify(legacy.snapshot) });
-    values.set(legacy.storageKey, raw);
-    for (let mount = 0; mount < 2; mount++) {
-      const scope = effectScope();
-      const app = scope.run(() => useLearning())!;
-      try {
-        await vi.waitFor(() => expect(app.ready.value).toBe(true));
-        expect(app.course.value.id).toBe(legacy.snapshot.courses[0]!.id);
-        expect(app.history.value.map((attempt) => attempt.id)).toEqual(["legacy-attempt"]);
-      } finally { scope.stop(); }
-      await Promise.resolve();
-      expect(values.get(legacy.storageKey)).toBe(raw);
-      expect(await new SnapshotRepository(sevenStepMode.state).load()).toEqual(legacy.snapshot);
-    }
-  });
-
-  it("keeps original course content, exercise/family IDs, audio keys and scoring projections identical", () => {
+describe("separated teaching storage", () => {
+  it("uses an independent seven-step key and never reads the old combined document", async () => {
+    values.set(legacy.storageKey, "{broken old snapshot");
+    expect(await new SnapshotRepository(sevenStepMode.state).load()).toEqual(sevenStepMode.state.empty());
+    expect(sevenStepMode.state.storageKey).toBe("lingonest.seven-step.v1");
     expect(digest(starterPackage)).toBe(legacy.starterDigest);
     expect(digest(courseAudioSpec)).toBe(legacy.audioDigest);
-    const state = sevenStepMode.state.decode(JSON.stringify(legacy.snapshot));
-    expect(state).toEqual(legacy.snapshot);
-    const record = state.courses[0]!;
-    expect(digest(sevenStepMode.authoring.buildCoursePackage(record))).toBe(legacy.customDigest);
-    const projection = sevenStepMode.runtime.projectLearning(state.events, record.package!.exercises, "legacy-a", "2026-10-15T02:00:00.000Z");
-    expect(digest(projection)).toBe(legacy.projectionDigest);
-    expect(sevenStepMode.state.storageKey).toBe(legacy.storageKey);
-  });
-
-  it("loads an old published custom course, restores an unfinished hinted answer and isolates profiles", async () => {
-    values.set(legacy.storageKey, JSON.stringify({ revision: 7, payload: JSON.stringify(legacy.snapshot) }));
-    const scope = effectScope();
-    const app = scope.run(() => useLearning())!;
-    try {
-      await vi.waitFor(() => expect(app.ready.value).toBe(true));
-      expect(app.course.value.id).toBe(legacy.snapshot.courses[0]!.id);
-      expect(app.confirmed.value).toBe(true);
-      expect(app.history.value.map((attempt) => attempt.id)).toEqual(["legacy-attempt"]);
-      // The legacy fixture has an unfinished S2 run but no completed S1 run.
-      // Preserve the existing prerequisite rules before resuming that old run.
-      app.startStage("S1");
-      await vi.waitFor(() => expect(app.currentExercise.value?.stageId).toBe("S1"));
-      app.selectedIds.value = [...app.currentExercise.value!.correctOptionIds!];
-      await app.submit();
-      await app.next();
-      app.startStage("S2");
-      await vi.waitFor(() => expect(app.currentExercise.value?.id).toBe(legacy.snapshot.runs[0]!.exerciseIds[0]));
-      expect(app.answer.value).toBe("fa");
-      expect(app.hintShown.value).toBe(true);
-      await app.selectLearner("legacy-b");
-      expect(app.history.value).toHaveLength(0);
-      await app.selectLearner("legacy-a");
-      expect(app.history.value.find((attempt) => attempt.id === "legacy-attempt")!.grade).toEqual(legacy.snapshot.events[0]!.attempt.grade);
-    } finally { scope.stop(); }
   });
 });
 
@@ -152,12 +104,31 @@ describe("module dependency boundaries", () => {
       expect(source, file).not.toMatch(/(?:from|import)\s*["'][^"']*(?:\/src\/|learning-engine|vue|capacitor)/);
     }
   });
+  it("keeps both teaching cores independent of each other and public application views free of teaching logic", () => {
+    for (const file of sourceFiles("packages/learning-modes/passage-path")) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/(?:from|import)\s*["'][^"']*(?:\/src\/|seven-step|learning-engine|vue|capacitor)/);
+    }
+    for (const file of sourceFiles("packages/learning-modes/seven-step")) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/(?:from|import)\s*["'][^"']*passage-path/);
+    }
+    const views = sourceFiles("src/application").filter(file => !/legacy-(?:catalog|data)\.ts$|services\.ts$/.test(file));
+    for (const file of views) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/from\s+["'][^"']*(?:seven-step|passage-path|learning-engine)/);
+    }
+  });
   it("keeps host contracts and shared platform/controls free of seven-step assumptions", () => {
     const files = ["packages/learning-modes/contracts.ts", "src/App.vue", "src/modes/ModeHost.vue", ...sourceFiles("src/platform"), ...sourceFiles("src/components")];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       expect(source, file).not.toMatch(/from\s+["'][^"']*(?:seven-step|course-library|course-speech|useLearning|learning-engine|parent-report)/);
       expect(source, file).not.toMatch(/\bStageId\b|\.stageId\b/);
+    }
+  });
+  it("keeps mode services independent of the application composition root and public storage codec", () => {
+    for (const file of sourceFiles("src/modes")) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toMatch(/from\s+["'][^"']*application\/(?:services|catalog)["']/);
+      expect(source, file).not.toMatch(/from\s+["'][^"']*catalog-state["']/);
     }
   });
 });

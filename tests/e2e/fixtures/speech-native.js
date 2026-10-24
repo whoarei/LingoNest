@@ -1,3 +1,4 @@
+import { starterMaterial } from "/packages/materials/starter.ts";
 // UI-only native fixture. Session state simulates an installed app across WebView reloads.
 export const isAndroid = true;
 const defaults = () => ({
@@ -24,6 +25,38 @@ const state = JSON.parse(
   requests: 0,
   plays: 0,
 };
+// This is synthetic UI fixture seeding, not a production migration path.
+const catalogSlot = "native-document:lingonest.catalog.v1", sevenSlot = "native-document:lingonest.seven-step.v1";
+const envelope = (value, revision = 7) => JSON.stringify({ revision, payload: JSON.stringify(value) });
+const readSlot = key => { const value = sessionStorage.getItem(key); return value ? JSON.parse(JSON.parse(value).payload) : null; };
+if (state.payload && state.payload !== sessionStorage.getItem("fixture-last-view")) {
+  const seed = JSON.parse(state.payload);
+  sessionStorage.setItem(catalogSlot, envelope({ formatVersion: 1, learners: seed.learners, activeLearnerId: seed.activeLearnerId,
+    defaultCourseId: starterMaterial.id, learningCourseIds: seed.learningCourseIds,
+    courses: [{ ...starterMaterial, sourceRevision: "source.starter.1", builtin: true, archivedAt: null }, ...seed.courses.map(record => ({
+      id: record.id, title: record.title, subtitle: record.subtitle, sourceText: record.sourceText, images: record.images,
+      supplementImages: record.vocabularyImages, sourceRevision: "source.fixture.1", archivedAt: record.deletedAt ?? null, builtin: false,
+    }))] }));
+  sessionStorage.setItem(sevenSlot, envelope({ formatVersion: 1, courses: seed.courses.map(({ deletedAt, ...record }) => record),
+    events: seed.events, runs: seed.runs, confirmedCourses: seed.confirmedCourses, lastObservedAt: seed.lastObservedAt }));
+}
+function updateView() {
+  const catalog = readSlot(catalogSlot); if (!catalog) return;
+  const saved = readSlot(sevenSlot);
+  const seven = Array.isArray(saved?.courses) ? saved : { courses: [], events: [], runs: [], confirmedCourses: [], lastObservedAt: null };
+  const courses = catalog.courses.filter(item => !item.builtin).map(material => {
+    const record = seven.courses.find(item => item.id === material.id);
+    const sameSource = record && JSON.stringify([record.title, record.subtitle, record.sourceText, record.images, record.vocabularyImages]) ===
+      JSON.stringify([material.title, material.subtitle, material.sourceText, material.images, material.supplementImages]);
+    return { ...(sameSource || record?.status === "published" ? record : { id: material.id, title: material.title, subtitle: material.subtitle,
+      sourceText: material.sourceText, images: material.images, vocabularyImages: material.supplementImages, vocabulary: record?.vocabulary ?? [],
+      status: "source", package: null, recipe: null, updatedAt: "2026-10-24T00:00:00.000Z" }), ...(material.archivedAt ? { deletedAt: material.archivedAt } : {}) };
+  });
+  state.payload = JSON.stringify({ ...seven, formatVersion: 2, courseVersion: "0.1.0", courses, learners: catalog.learners,
+    activeLearnerId: catalog.activeLearnerId, learningCourseIds: catalog.learningCourseIds, confirmedLearnerIds: [], pendingDeletions: [], pendingCourseDeletions: [] });
+  sessionStorage.setItem("fixture-last-view", state.payload);
+}
+updateView();
 const listeners = {};
 state.resources ||= {};
 const resource = (course) =>
@@ -85,23 +118,20 @@ const network = () => {
 };
 persist();
 export const native = {
-  loadDocument: async ({ key }) => JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}'),
+  loadDocument: async ({ key }) => {
+    if (key === 'lingonest.passage-path.v2' && window.__modeReadFailure) throw Error('模拟模式读取暂时失败');
+    return JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}');
+  },
   saveDocument: async ({ key, expectedRevision, payload }) => {
     if (window.__modeSaveFailure) throw Error('模拟模式设置保存失败');
+    if (window.__saveFailure && ['lingonest.catalog.v1', 'lingonest.seven-step.v1'].includes(key)) throw Error('模拟保存失败');
     if (window.__documentSaveDelay) await new Promise(resolve => setTimeout(resolve, window.__documentSaveDelay));
     const current = JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}');
     if (current.revision !== expectedRevision) throw Error('课程模式设置已更新，请重新打开');
     const next = { revision: current.revision + 1, payload };
     sessionStorage.setItem('native-document:' + key, JSON.stringify(next));
+    if (['lingonest.catalog.v1', 'lingonest.seven-step.v1'].includes(key)) { updateView(); persist(); }
     return { revision: next.revision };
-  },
-  loadState: async () => ({ revision: state.revision, payload: state.payload }),
-  saveState: async (input) => {
-    if (window.__saveFailure) throw Error("模拟保存失败");
-    state.revision++;
-    state.payload = input.payload;
-    persist();
-    return { revision: state.revision };
   },
   getSpeechConfig: async () => ({ ...state.cfg }),
   setSpeechConfig: async (input) => {

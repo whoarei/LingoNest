@@ -1,3 +1,5 @@
+import { createApplicationServices } from "../src/application/services";
+import { catalogKey, sampleCatalog, envelope } from "./fixtures/application-state";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { useLearning } from "../src/useLearning";
@@ -16,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal("window", {});
 });
 async function boot() {
-  const app = useLearning();
+  const app = useLearning({ services: createApplicationServices().sevenStep });
   await vi.waitFor(() => expect(app.ready.value).toBe(true));
   return app;
 }
@@ -54,8 +56,8 @@ describe("local learning service", () => {
     const state = emptyState();
     const exercise = exercises.find((item) => item.kind === "oral")!;
     const time = new Date().toISOString();
-    state.learners = [{ id: "child-a", nickname: "小树", createdAt: time }];
-    state.activeLearnerId = "child-a";
+    const catalog = sampleCatalog(); catalog.learners = [{ id: "child-a", nickname: "小树", createdAt: time }]; catalog.activeLearnerId = "child-a"; catalog.learningCourseIds = {};
+    values.set(catalogKey, envelope(catalog));
     const response = {
       answer: "",
       selectedIds: [],

@@ -13,6 +13,8 @@ export interface MaterialCourse {
   builtin: boolean;
   /** Material owner's editing permission; publication checks still run on writes. */
   sourceEditable?: boolean;
+  /** Explains a temporary editing block when a data owner's status is unavailable. */
+  sourceEditBlockedReason?: string;
 }
 export interface CatalogSnapshot {
   learners: LearnerProfile[];
@@ -36,6 +38,8 @@ export interface MaterialInput {
   supplementImages: SourceImage[];
 }
 export interface CatalogPort {
+  snapshot(): CatalogSnapshot;
+  subscribe(listener: (snapshot: CatalogSnapshot) => void): () => void;
   read(): Promise<CatalogSnapshot>;
   selection(): CatalogSelection;
   addLearner(nickname: string): Promise<string>;

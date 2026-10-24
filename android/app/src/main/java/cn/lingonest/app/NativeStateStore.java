@@ -15,7 +15,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 
-/** MVP snapshot store. SQLite is private to the application; this database is NOT encrypted. */
+/** Named document snapshot store. SQLite is private to the application; this database is NOT encrypted. */
 final class NativeStateStore extends SQLiteOpenHelper {
     static final class State {
         final long revision;
@@ -25,10 +25,6 @@ final class NativeStateStore extends SQLiteOpenHelper {
     static final class StoreException extends Exception {
         final String code;
         StoreException(String code, String message) { super(message); this.code = code; }
-    }
-
-    NativeStateStore(Context context) {
-        this(context, "lingonest-state.db");
     }
 
     NativeStateStore(Context context, String databaseName) {

@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApplicationServices } from "../src/application/services";
 import { deletionStateCodec, resourceKey } from "../src/platform/deletions";
 import { useLearning } from "../src/modes/seven-step/useLearning";
-import { archiveCourse, purgeCourse } from "../packages/learning-modes/seven-step/deletion";
+import { recordForMaterial } from "../src/modes/seven-step/services";
+import { sampleSeven, sevenKey, catalogKey } from "./fixtures/application-state";
 import { decodeState } from "../packages/learning-modes/seven-step/state";
 import { decodePassageState, passagePathStateCodec } from "../packages/learning-modes/passage-path/state";
 import { removePassageCourse } from "../packages/learning-modes/passage-path/deletion";
@@ -13,13 +14,37 @@ import legacy from "./fixtures/seven-step-legacy.json";
 
 let env: ReturnType<typeof setupCatalog>;
 beforeEach(() => { env = setupCatalog(); });
-const legacyState = () => decodeState(JSON.parse(env.values.get(legacy.storageKey)!).payload);
+const legacyState = () => decodeState(JSON.parse(env.values.get(sevenKey)!).payload);
 const deletionState = () => deletionStateCodec.decode(JSON.parse(env.values.get(deletionStateCodec.storageKey)!).payload);
 
 describe("cross-mode deletion transactions", () => {
+  it("keeps public material references alive even when neither material has seven-step content", async () => {
+    const first = await env.services.catalog.createMaterial(materialInput());
+    const second = await env.services.catalog.createMaterial(materialInput());
+    const seven = env.values.get(sevenKey);
+    await env.services.catalog.archiveCourse(first); await env.services.catalog.purgeCourse(first);
+    expect(env.cleanup.mock.calls.some(([resource]) => resource.kind === "image")).toBe(false);
+    expect(env.values.get(sevenKey)).toBe(seven);
+    await env.services.catalog.archiveCourse(second); await env.services.catalog.purgeCourse(second);
+    expect(env.cleanup.mock.calls.filter(([resource]) => resource.kind === "image")).toHaveLength(2);
+  });
+  it("resumes a failed public-catalog removal after both teaching owners have committed", async () => {
+    const { courseId } = await beginShared(env.services);
+    await env.services.catalog.archiveCourse(courseId);
+    env.control.failWrite = key => key === catalogKey;
+    await expect(env.services.catalog.purgeCourse(courseId)).rejects.toThrow("保存失败");
+    expect(deletionState().plans[0]!.removed).toEqual(["seven-step", "passage-path"]);
+    expect(env.cleanup).not.toHaveBeenCalled();
+    expect(JSON.parse(JSON.parse(env.values.get(catalogKey)!).payload).courses.some((item: any) => item.id === courseId)).toBe(true);
+    env.control.failWrite = () => false;
+    const restarted = createApplicationServices(env.cleanup); await restarted.boot();
+    expect((await restarted.catalog.read()).courses.some(item => item.id === courseId)).toBe(false);
+    expect(deletionState().plans).toEqual([]);
+    expect(deletionState().completed).toContainEqual({ kind: "course", id: courseId });
+  });
   it("purges both modes while retaining another course's shared image and all unrelated seven-step progress", async () => {
-    const raw = decodeState(JSON.stringify(legacy.snapshot)); raw.courses[0]!.images = [sharedImage];
-    env.values.set(legacy.storageKey, JSON.stringify({ revision: 7, payload: JSON.stringify(raw) }));
+    const raw = sampleSeven(); raw.courses[0]!.images = [sharedImage];
+    env.values.set(sevenKey, JSON.stringify({ revision: 7, payload: JSON.stringify(raw) }));
     const { store, courseId } = await beginShared(env.services);
     const staleDraft = env.services.sevenStep.state.snapshot().courses.find(item => item.id === courseId)!;
     await env.services.catalog.archiveCourse(courseId);
@@ -27,7 +52,7 @@ describe("cross-mode deletion transactions", () => {
     expect(store.snapshot().packages).toEqual([]); expect(store.snapshot().sessions).toEqual([]);
     const state = legacyState();
     expect(state.courses).toEqual(raw.courses); expect(state.events).toEqual(raw.events); expect(state.runs).toEqual(raw.runs);
-    expect(state.pendingCourseDeletions).toEqual([]);
+
     expect(env.cleanup.mock.calls.map(([resource]) => resource.kind === "image" ? resource.path : "")).not.toContain(sharedImage.path);
     expect(env.cleanup.mock.calls.some(([resource]) => resource.kind === "audio" && resource.course.courseId === courseId)).toBe(true);
     expect(deletionState()).toMatchObject({ plans: [], completed: [{ kind: "course", id: courseId }] });
@@ -83,28 +108,28 @@ describe("cross-mode deletion transactions", () => {
       cleaned.push(resourceKey(resource));
     });
     await expect(env.services.catalog.purgeCourse(courseId)).rejects.toThrow("文件清理失败");
-    const dataAfterRemoval = env.values.get(legacy.storageKey);
-    expect(deletionState().plans[0]!.removed).toEqual(["seven-step", "passage-path"]);
+    const dataAfterRemoval = env.values.get(sevenKey);
+    expect(deletionState().plans[0]!.removed).toEqual(["seven-step", "passage-path", "catalog"]);
     const alreadyCleaned = [...cleaned];
     const restarted = createApplicationServices(env.cleanup); await restarted.sevenStep.boot();
     expect(deletionState().plans).toEqual([]);
-    expect(env.values.get(legacy.storageKey)).toBe(dataAfterRemoval);
+    expect(env.values.get(sevenKey)).toBe(dataAfterRemoval);
     expect(alreadyCleaned.every(key => cleaned.filter(value => value === key).length === 1)).toBe(true);
     expect(new Set(cleaned).size).toBe(cleaned.length);
   });
   it("cannot delete any mode's data before the durable plan itself has been saved", async () => {
     const { courseId } = await beginShared(env.services);
     await env.services.catalog.archiveCourse(courseId);
-    const old = env.values.get(legacy.storageKey), passage = env.values.get(passagePathStateCodec.storageKey);
+    const old = env.values.get(sevenKey), passage = env.values.get(passagePathStateCodec.storageKey);
     env.control.failWrite = key => key === deletionStateCodec.storageKey;
     await expect(env.services.catalog.purgeCourse(courseId)).rejects.toThrow("保存失败");
-    expect(env.values.get(legacy.storageKey)).toBe(old); expect(env.values.get(passagePathStateCodec.storageKey)).toBe(passage);
+    expect(env.values.get(sevenKey)).toBe(old); expect(env.values.get(passagePathStateCodec.storageKey)).toBe(passage);
     expect(env.cleanup).not.toHaveBeenCalled();
   });
   it("prevents restore during an interrupted purge while allowing another child to remain usable", async () => {
     const { courseId } = await beginShared(env.services);
     await env.services.catalog.archiveCourse(courseId);
-    env.control.failWrite = key => key === legacy.storageKey;
+    env.control.failWrite = key => key === sevenKey;
     await expect(env.services.catalog.purgeCourse(courseId)).rejects.toThrow("保存失败");
     env.control.failWrite = () => false;
     const scope = effectScope(); const app = scope.run(() => useLearning({ services: env.services.sevenStep }))!;
@@ -112,7 +137,7 @@ describe("cross-mode deletion transactions", () => {
       await vi.waitFor(() => expect(app.ready.value).toBe(true));
       expect(await app.restoreCourse(courseId)).toBe(false);
       expect(app.error.value).toContain("彻底删除");
-      expect(legacyState().courses.find(item => item.id === courseId)!.deletedAt).toBeTruthy();
+      expect((await env.services.catalog.read()).courses.some(item => item.id === courseId)).toBe(false);
       await app.selectLearner("legacy-b");
       expect(app.learner.value!.id).toBe("legacy-b");
       await app.renameLearner("仍然可以使用");
@@ -126,37 +151,25 @@ describe("cross-mode deletion transactions", () => {
       participants: ["seven-step", "future-mode"], removed: [], resources: [], cleaned: [] }] };
     const raw = JSON.stringify({ revision: 1, payload: JSON.stringify(value) });
     env.values.set(deletionStateCodec.storageKey, raw);
-    const before = env.values.get(legacy.storageKey);
+    const before = env.values.get(sevenKey);
     await env.services.sevenStep.boot();
     expect(env.services.sevenStep.startupError).toContain("future-mode");
-    expect(env.values.get(legacy.storageKey)).toBe(before);
+    expect(env.values.get(sevenKey)).toBe(before);
     expect(env.values.get(deletionStateCodec.storageKey)).toBe(raw);
     expect(env.cleanup).not.toHaveBeenCalled();
   });
   it("leaves seven-step readable if dormant mode data is unsupported, and refuses deletion before touching it", async () => {
     env.values.set(passagePathStateCodec.storageKey, JSON.stringify({ revision: 3, payload: '{"formatVersion":999}' }));
-    const raw = env.values.get(legacy.storageKey);
+    const raw = env.values.get(sevenKey);
     await env.services.sevenStep.boot();
-    expect(env.values.get(legacy.storageKey)).toBe(raw);
+    expect(env.values.get(sevenKey)).toBe(raw);
     const courseId = legacy.snapshot.courses[0]!.id;
     await env.services.catalog.archiveCourse(courseId);
-    const archived = env.values.get(legacy.storageKey);
+    const archived = env.values.get(sevenKey);
     await expect(env.services.catalog.purgeCourse(courseId)).rejects.toThrow("不支持");
-    expect(env.values.get(legacy.storageKey)).toBe(archived);
+    expect(env.values.get(sevenKey)).toBe(archived);
     expect(env.values.has(deletionStateCodec.storageKey)).toBe(false);
     expect(env.cleanup).not.toHaveBeenCalled();
-  });
-  it("imports old durable resource cleanup work without resurrecting the old course or its progress", async () => {
-    const state = decodeState(JSON.stringify(legacy.snapshot));
-    const courseId = state.courses[0]!.id;
-    archiveCourse(state, courseId); purgeCourse(state, courseId);
-    env.values.set(legacy.storageKey, JSON.stringify({ revision: 8, payload: JSON.stringify(state) }));
-    const profiles = state.learners;
-    await env.services.sevenStep.boot();
-    expect(legacyState().pendingCourseDeletions).toEqual([]);
-    expect(legacyState().courses).toEqual([]); expect(legacyState().learners).toEqual(profiles);
-    expect(env.cleanup.mock.calls.some(([resource]) => resource.kind === "audio" && resource.course.courseId === courseId)).toBe(true);
-    expect(deletionState().completed).toContainEqual({ kind: "course", id: courseId });
   });
   it("removes a learner from every mode while retaining other learners and shared course content", async () => {
     const { courseId, store, setContext, getContext } = await beginShared(env.services);
@@ -171,7 +184,7 @@ describe("cross-mode deletion transactions", () => {
     expect(store.snapshot().sessions.map(item => item.learnerId)).toEqual(["legacy-b"]);
     expect(store.snapshot().packages).toHaveLength(1);
     expect(legacyState().events.every(item => item.learnerId !== "legacy-a")).toBe(true);
-    expect(legacyState().activeLearnerId).toBe("legacy-b");
+    expect(env.services.catalog.selection().activeLearnerId).toBe("legacy-b");
     expect(env.cleanup.mock.calls.every(([resource]) => resource.kind !== "audio" && resource.kind !== "image")).toBe(true);
     expect(() => decodePassageState(JSON.stringify(store.snapshot()))).not.toThrow();
   });

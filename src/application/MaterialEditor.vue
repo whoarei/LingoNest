@@ -56,15 +56,16 @@ async function save() {
     }
     catch { }
 }
-async function pick(mode: "camera" | "gallery") {
-    if (busy.value || job.value || draft.value.images.length >= 6)
+async function pick(mode: "camera" | "gallery", supplement = false) {
+    const images = supplement ? draft.value.supplementImages : draft.value.images;
+    if (busy.value || job.value || readonly.value || images.length >= 6)
         return;
     busy.value = true;
     error.value = "";
     try {
         const image = await contentNative.pickImage({ mode });
         if (!disposed && !image.cancelled)
-            draft.value.images.push({ path: image.path, rotation: image.rotation });
+            images.push({ path: image.path, rotation: image.rotation });
     }
     catch (failure) {
         error.value = failure instanceof Error ? failure.message : String(failure);
@@ -111,7 +112,7 @@ defineExpose({ prepareLeave: persist });
   <section class="shared-content material-editor" :aria-busy="busy || job">
     <h1>{{ material ? '课程教材' : '新建教材' }}</h1>
     <p>教材由各学习模式共用。保存后，可以分别准备七步学习或闯关内容。</p>
-    <p v-if="readonly" class="frame-note">这份教材已经用于学习内容，当前版本保持只读。原有内容和记录继续保留。</p>
+    <p v-if="readonly" class="frame-note">{{ material?.sourceEditBlockedReason || '这份教材已经用于学习内容，当前版本保持只读。原有内容和记录继续保留。' }}</p>
     <p v-if="error" role="alert" class="frame-error">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-else-if="dirty" class="frame-caption" role="status">有未保存的修改。离开本页时会自动保存，也可以点击保存教材。</p>
@@ -163,7 +164,12 @@ defineExpose({ prepareLeave: persist });
         maxlength="6000"
         placeholder="每段或话轮换行，对话可以使用 Alice: Hello! 的格式。"
       />
-      <SourceImages v-if="draft.supplementImages.length" :images="draft.supplementImages" />
+      <h2>词汇表或补充图片</h2>
+      <div class="frame-actions">
+        <button type="button" @click="pick('camera', true)">拍摄词汇表</button>
+        <button type="button" @click="pick('gallery', true)">选择词汇表图片</button>
+      </div>
+      <SourceImages :images="draft.supplementImages" editable :disabled="busy || job" @change="draft.supplementImages = $event" />
       <button type="button" class="frame-button" @click="save">保存教材</button>
     </fieldset>
     <button v-if="job" type="button" @click="cancel">暂停识别</button>

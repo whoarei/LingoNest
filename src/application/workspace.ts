@@ -22,6 +22,7 @@ export interface WorkspaceContext {
   activation: Readonly<Ref<number>>;
   connect(workspace: ModeWorkspace): () => void;
   authorize(label: string, action: () => Promise<void>): Promise<void>;
+  /** Scoped to the requesting workspace's mode and course, including inactive modes. */
   openParent(surface?: ModeSurface): Promise<void>;
   openSettings(): Promise<void>;
   editMaterial(): Promise<void>;

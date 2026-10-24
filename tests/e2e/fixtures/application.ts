@@ -23,7 +23,7 @@ export async function seedApplication(page: Page, options: { mode?: string; pass
     sessionStorage.setItem("speech-native-fixture", JSON.stringify({ revision: snapshot ? 7 : 0, payload: snapshot ? JSON.stringify(snapshot) : null, cfg, cache: [], variants: {}, active: "", draft: "", requests: 0, plays: 0,
       resources: Object.fromEntries(manifests.map(manifest => [manifest.courseId + ":" + manifest.courseVersion, { total: manifest.assets.length, variants: { [variant]: { files: manifest.assets.map(item => item.id), voice: cfg.voice, model: cfg.model } }, active: variant, draft: "" }])) }));
     sessionStorage.setItem("native-document:lingonest.mode-settings.v1", JSON.stringify({ revision: 1, payload: JSON.stringify({ formatVersion: 1, activeModeId: mode }) }));
-    if (passage) sessionStorage.setItem("native-document:lingonest.passage-path.v1", JSON.stringify({ revision: 1, payload: JSON.stringify(passage) }));
+    if (passage) sessionStorage.setItem("native-document:lingonest.passage-path.v2", JSON.stringify({ revision: 1, payload: JSON.stringify(passage) }));
   }, { snapshot, mode: options.mode ?? "seven-step", passage, manifests });
 }
 export async function adult(page: Page) {
@@ -51,7 +51,7 @@ export async function switchMode(page: Page, mode: "七步" | "课文闯关") {
   await page.getByRole("radio", { name: new RegExp(mode) }).click(); await adult(page);
 }
 export async function snapshot(page: Page) { return page.evaluate(() => JSON.parse(JSON.parse(sessionStorage.getItem("speech-native-fixture")!).payload)); }
-export async function passageSnapshot(page: Page): Promise<PassageState> { return page.evaluate(() => JSON.parse(JSON.parse(sessionStorage.getItem("native-document:lingonest.passage-path.v1")!).payload)); }
+export async function passageSnapshot(page: Page): Promise<PassageState> { return page.evaluate(() => JSON.parse(JSON.parse(sessionStorage.getItem("native-document:lingonest.passage-path.v2")!).payload)); }
 export async function manageCourse(page: Page, title: string, mode: "七步" | "课文闯关") {
   await navigate(page, "课程");
   await page.locator(".frame-course-entry").filter({ hasText: title }).click();

@@ -1,3 +1,5 @@
+import type { MaterialCourse } from "./catalog";
+
 /** Platform contracts deliberately contain no stages, exercise types or mastery rules. */
 export interface SourceImage {
   path: string;
@@ -43,7 +45,8 @@ export interface TeachingModeRegistration<TExperience> {
   identity: Readonly<TeachingModeIdentity>;
   /** A scoped teaching workspace; application navigation is provided by its host. */
   loadExperience(): Promise<TExperience>;
-  readOverview?(learnerId: string | null): Promise<ModeOverview>;
+  /** Public scope is projected by the host, including pending deletions. */
+  readOverview?(learnerId: string | null, materials: readonly MaterialCourse[]): Promise<ModeOverview>;
 }
 
 export interface ModeOverview {

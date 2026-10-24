@@ -6,7 +6,7 @@ import { makePassageAudioManifest } from "../../packages/learning-modes/passage-
 import type { PassageState } from "../../packages/learning-modes/passage-path/model";
 import { newCourse, starterRecord, type CourseRecord } from "../../packages/learning-modes/seven-step/authoring";
 const legacy = JSON.parse(readFileSync(new URL("../fixtures/seven-step-legacy.json", import.meta.url), "utf8"));
-const stateKey = "native-document:lingonest.passage-path.v1";
+const stateKey = "native-document:lingonest.passage-path.v2";
 const settingsKey = "native-document:lingonest.mode-settings.v1";
 async function seed(page: Page, options: { mode?: string; published?: boolean; passage?: PassageState; extraCourses?: CourseRecord[]; legacyApis?: boolean } = {}) {
   if (options.legacyApis) await page.addInitScript(() => {
@@ -242,7 +242,7 @@ test("lost audio blocks submission and resume while the original remains availab
     const { native } = await import('/src/native.ts');
     // @ts-expect-error browser-only module path
     const { makePassageAudioManifest } = await import('/packages/learning-modes/passage-path/authoring.ts');
-    const state = JSON.parse(JSON.parse(sessionStorage.getItem('native-document:lingonest.passage-path.v1')!).payload);
+    const state = JSON.parse(JSON.parse(sessionStorage.getItem('native-document:lingonest.passage-path.v2')!).payload);
     await native.clearCourseAudio({ course: makePassageAudioManifest(state.packages[0]) });
   });
   await page.getByRole("button", { name: "检查答案", exact: true }).click();
@@ -344,7 +344,7 @@ test("navigation waits for the latest review edit received while its previous sn
     readFileSync(new URL("./fixtures/speech-native.js", import.meta.url), "utf8").replace(
       'saveDocument: async ({ key, expectedRevision, payload }) => {',
       `saveDocument: async ({ key, expectedRevision, payload }) => {
-        if (key === 'lingonest.passage-path.v1' && window.__holdPassageSave) {
+        if (key === 'lingonest.passage-path.v2' && window.__holdPassageSave) {
           window.__holdPassageSave = false; window.__savingPassage = true;
           await new Promise(resolve => { window.__releasePassageSave = resolve; });
         }`,

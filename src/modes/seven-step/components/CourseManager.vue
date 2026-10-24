@@ -44,6 +44,7 @@ import CourseReview from "./CourseReview.vue";
 import CourseModeNotice from "../../../components/CourseModeNotice.vue";
 import { useModeSelection } from "../../../platform/mode-selection";
 import { sevenStepCourseAccess } from "../course-access";
+import { materialFields } from "../services";
 import { workspaceKey } from "../../../application/workspace";
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
@@ -367,9 +368,19 @@ watch(
   (active) => {
     if (!active) {
       abort();
-      if (!published.value) void persist();
+      if (!published.value && !preparedForLeave) void persist();
       if (speech.courseGenerating.value) void speech.cancelCourse();
     } else {
+      const latest = props.app.courses.find(item => item.id === courseId.value);
+      if (props.embedded && latest && JSON.stringify(materialFields(latest)) !== JSON.stringify(materialFields(record.value))) {
+        clearTimeout(saveTimer);
+        record.value = clone(latest);
+        viewStep.value = null;
+        checkedOriginal.value = false;
+        reviewed.value = false;
+        invalidated.value = false;
+        error.value = "";
+      }
       void speech.refreshCourse().catch(() => {});
     }
   },
@@ -907,13 +918,16 @@ async function goToStep(step: DraftStep) {
             <p class="field-help">
               原文已确认。可以识别教材词汇表，也可以由应用根据课文建议词汇；两种来源合并去重，确认后用于出题。
             </p>
+            <button v-if="embedded" type="button" class="text-button" @click="workspace?.editMaterial()">编辑共同教材与词汇表图片</button>
             <div class="speech-actions">
               <button
+                v-if="!embedded"
                 class="button secondary compact"
                 @click="addImage(true, 'camera')"
               >
                 拍摄词汇表</button
               ><button
+                v-if="!embedded"
                 class="button secondary compact"
                 @click="addImage(true, 'gallery')"
               >
@@ -924,7 +938,7 @@ async function goToStep(step: DraftStep) {
             </div>
             <SourceImages
               :images="record.vocabularyImages"
-              editable
+              :editable="!embedded"
               :disabled="job"
               @change="record.vocabularyImages = $event"
             /><button

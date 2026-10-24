@@ -144,5 +144,5 @@ export function decodePassageState(payload: string): PassageState {
   return value;
 }
 export const passagePathStateCodec: SnapshotCodec<PassageState> = {
-  storageKey: "lingonest.passage-path.v1", empty: emptyPassageState, decode: decodePassageState,
+  storageKey: "lingonest.passage-path.v2", empty: emptyPassageState, decode: decodePassageState,
 };

@@ -94,7 +94,7 @@ async function state(page: Page) {
 }
 async function deletionWork(page: Page) {
   return page.evaluate(() => {
-    const saved = sessionStorage.getItem("native-document:lingonest.deletions.v1");
+    const saved = sessionStorage.getItem("native-document:lingonest.deletions.v2");
     return saved ? JSON.parse(JSON.parse(saved).payload) : { plans: [], completed: [] };
   });
 }
@@ -139,8 +139,8 @@ test("photographed material is corrected in the frame and vocabulary provenance 
   await page.getByRole("button", { name: "识别课文图片", exact: true }).click();
   await expect(page.getByLabel("文章或课文原文", { exact: true })).toHaveValue(/待校对/);
   await page.getByLabel("文章或课文原文", { exact: true }).fill("I love my family.\nMy mother is a teacher.");
-  await original(page);
   await page.getByRole("button", { name: "拍摄词汇表", exact: true }).click();
+  await original(page);
   await page.getByRole("button", { name: "识别教材词汇表", exact: true }).click();
   await expect(page.locator(".course-word")).toHaveCount(2);
   await page.getByRole("button", { name: "应用生成重点词汇", exact: true }).click();
@@ -256,8 +256,8 @@ test("compact vocabulary preserves selection and edits, adds and removes entries
   await boot(page);
   await newDraft(page);
   await page.getByLabel("文章或课文原文", { exact: true }).fill("I love my family.");
-  await original(page);
   await page.getByRole("button", { name: "选择词汇表图片", exact: true }).click();
+  await original(page);
   await page.evaluate(() => {
     const terms = ["family", "teacher", "mother", "father", "sister", "brother", "school", "home", "book", "pencil", "garden", "tree", "flower", "bird", "cat", "dog", "apple", "orange", "water", "milk", "bread", "friend", "student", "classroom"];
     (window as any).__vocabularyEntries = terms.map((term, index) => ({

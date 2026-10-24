@@ -18,7 +18,7 @@ export class PassageStore {
   load(): Promise<void> {
     return this.loading ??= (async () => {
       const value = await this.repository.load(); validatePassageState(value); this.current = copy(value);
-    })();
+    })().catch(failure => { this.loading = undefined; throw failure; });
   }
   snapshot(): PassageState {
     requireValid(this.current, "数据尚未加载。");

@@ -35,6 +35,19 @@ async function begin() {
 }
 
 describe("passage-path transactions and persistence", () => {
+  it("retries an initial storage read failure on the same mode store", async () => {
+    const repository = new SnapshotRepository(passagePathStateCodec);
+    let fail = true;
+    const store = new PassageStore({
+      async load() { if (fail) throw Error("temporary read failure"); return repository.load(); },
+      save: value => repository.save(value),
+    }, () => context());
+    await expect(store.load()).rejects.toThrow("temporary read failure");
+    fail = false;
+    await store.load();
+    expect(store.snapshot()).toEqual(passagePathStateCodec.empty());
+    expect(values.has(key)).toBe(false);
+  });
   it("uses an independent snapshot and resumes without touching any legacy bytes alongside the registered experience", async () => {
     const old = values.get(legacy.storageKey);
     const store = await begin();
