@@ -16,12 +16,22 @@ import Icon from "../components/AppIcon.vue";
 import CourseModeSettings from "../components/CourseModeSettings.vue";
 import ContentSettings from "../components/ContentSettings.vue";
 import SpeechSettings from "../components/SpeechSettings.vue";
+import AppUpdatePanel from "../components/AppUpdatePanel.vue";
+import { createAppUpdate } from "../platform/app-update";
+import { appUpdateAPI } from "../platform/app-update-bridge";
 import SourceImages from "../components/SourceImages.vue";
 import SwipeCourseRow from "../components/SwipeCourseRow.vue";
 import MaterialEditor from "./MaterialEditor.vue";
 import CourseResources from "./CourseResources.vue";
 import "./application.css";
-type Page = "learn" | "courses" | "records" | "record" | "overview" | "settings" | "profiles" | "detail" | "material" | "plugin";
+type Page = "learn" | "courses" | "records" | "record" | "overview" | "settings" | "profiles" | "detail" | "material" | "plugin" | "updates";
+let updateStorage: Storage | undefined;
+try { updateStorage = window.localStorage; } catch { /* Learning remains available if storage is blocked. */ }
+const appUpdates = createAppUpdate({ api: appUpdateAPI, enabled: isAndroid, storage: updateStorage });
+const updates = reactive(appUpdates);
+const appMenu = ref<HTMLDetailsElement | null>(null);
+const updateReturnPage = ref<Page>("learn");
+const updateReturnEditing = ref(false);
 const services = inject(applicationServicesKey)!;
 const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);
 provide(modeSelectionKey, modeSelectionView(selection));
@@ -30,6 +40,7 @@ const noFlexGap = ref(false);
 const overviews = shallowRef<Record<string, ModeOverview>>({});
 const overviewErrors = ref<Record<string, string>>({});
 const page = ref<Page>("learn"), parent = ref(false), ready = ref(false), busy = ref(false), error = ref(""), notice = ref("");
+watch(page, () => { if (appMenu.value) appMenu.value.open = false; });
 const initializing = ref(true);
 const navigating = ref(false);
 const exiting = ref(false);
@@ -91,7 +102,7 @@ const managed = computed(() => directory.value.courses.find(item => item.id === 
 const modeTitle = computed(() => selection.modes.find(item => item.id === selection.activeModeId.value)?.title ?? "当前模式不可用");
 const pluginVisible = computed(() => page.value === "learn" && !!learner.value || page.value === "plugin");
 const focused = computed(() => pluginVisible.value && !!host.value?.adapter?.focused);
-const locked = computed(() => initializing.value || busy.value || navigating.value || exiting.value || selection.busy.value || !!pendingAction.value || !!host.value?.adapter?.busy || !!courseResources.value?.busy);
+const locked = computed(() => initializing.value || busy.value || navigating.value || exiting.value || selection.busy.value || updates.installing || !!pendingAction.value || !!host.value?.adapter?.busy || !!courseResources.value?.busy);
 const resources = computed(() => Object.values(overviews.value).flatMap(item => item.resources ?? []).filter(item => item.manifest.courseId === managedId.value));
 const reading = computed(() => managed.value ?? currentCourse.value);
 const reader = useSpeech(computed(() => overviews.value[selection.activeModeId.value]?.resources?.find(item => item.current && item.manifest.courseId === reading.value?.id)?.manifest ??
@@ -157,6 +168,21 @@ async function prepareLeave() {
     await speech.stop();
     await reader.stop();
 }
+async function openUpdates() {
+    if (locked.value) return;
+    if (appMenu.value) appMenu.value.open = false;
+    const origin = page.value;
+    const wasEditing = editing.value;
+    await go("updates");
+    if (page.value === "updates" && origin !== "updates") {
+        updateReturnPage.value = origin;
+        updateReturnEditing.value = origin === "material" && wasEditing;
+    }
+}
+async function returnFromUpdates() {
+    if (updateReturnPage.value === "material" && updateReturnEditing.value) await openMaterial();
+    else await go(updateReturnPage.value);
+}
 async function perform(action: () => Promise<void>, prepare = true) {
     if (busy.value || selection.busy.value)
         return false;
@@ -180,7 +206,7 @@ async function perform(action: () => Promise<void>, prepare = true) {
     }
 }
 async function go(target: Page, nextParent = target === "learn" ? false : parent.value) {
-    if (navigating.value || busy.value || selection.busy.value || pendingAction.value)
+    if (navigating.value || busy.value || selection.busy.value || pendingAction.value || updates.installing)
         return;
     navigating.value = true;
     error.value = "";
@@ -387,6 +413,7 @@ async function exitPractice() {
     finally { exiting.value = false; }
 }
 async function handleBack() {
+    if (updates.installing) return;
     if (busy.value || navigating.value || exiting.value || selection.busy.value) return;
     if (pendingAction.value) {
         cancelAuthorization();
@@ -415,6 +442,7 @@ async function handleBack() {
         return;
     }
     if (page.value === "record") { await go("records"); return; }
+    if (page.value === "updates") { await returnFromUpdates(); return; }
     if (page.value === "settings") {
         await go(returnPage.value);
         return;
@@ -460,6 +488,8 @@ let backListener: {
 } | undefined;
 let backBusy = false;
 onMounted(() => {
+    // Version IO runs independently of startup/catalog loading and never gates rendering.
+    void appUpdates.start();
     const probe = document.createElement("div");
     probe.style.cssText = "display:flex;flex-direction:column;row-gap:1px;position:absolute;top:-9999px";
     probe.append(document.createElement("div"), document.createElement("div"));
@@ -479,7 +509,7 @@ onMounted(() => {
                 backListener = handle;
         }).catch(() => { });
 });
-onScopeDispose(() => { disposed = true; refreshEpoch++; cancelAuthorization(); void backListener?.remove(); });
+onScopeDispose(() => { disposed = true; refreshEpoch++; cancelAuthorization(); appUpdates.dispose(); void backListener?.remove(); });
 async function initialize() {
     initializing.value = true;
     error.value = "";
@@ -512,6 +542,10 @@ void initialize();
       <div class="frame-actions">
         <button v-if="learner" class="frame-profile" :title="learner.nickname" :disabled="locked" @click="enterParent('profiles')">{{ learner.nickname }}</button>
         <button class="frame-link" :disabled="locked" @click="parent ? go('learn', false) : enterParent()">{{ parent ? '返回学习空间' : '家长空间' }}</button>
+        <details ref="appMenu" class="frame-app-menu">
+          <summary :aria-disabled="locked" @click="locked && $event.preventDefault()" @keydown.esc="appMenu && (appMenu.open = false)">更多</summary>
+          <div><button class="frame-link" :disabled="locked" @click="openUpdates">应用更新</button></div>
+        </details>
       </div>
     </header>
     <header v-else class="application-focusbar">
@@ -525,8 +559,20 @@ void initialize();
     </p>
     <p v-else-if="notice" class="frame-note frame-global-message" role="status">{{ notice }}</p>
     <p v-if="busy || selection.busy.value" class="frame-save-progress" role="status">{{ selection.busy.value ? '正在保存进度并切换模式…' : '正在保存，请稍候…' }}</p>
+    <aside v-if="ready && page === 'learn' && !focused && !locked && !deletion && !exitPrompt && updates.notify" class="frame-update-notice" aria-label="新版本提示">
+      <span>有新版本 {{ updates.latest?.versionName }}</span>
+      <button class="frame-link" @click="openUpdates">查看更新</button>
+      <button class="frame-link" @click="updates.dismiss()">稍后</button>
+    </aside>
     <fieldset class="application-body" :disabled="!!pendingAction || !!deletion || exitPrompt || exiting || selection.busy.value">
-      <main v-if="!ready && page !== 'settings'" class="frame-page">
+      <main v-if="page === 'updates'" class="frame-page">
+        <div class="frame-page-heading">
+          <h1>应用更新</h1>
+          <button class="frame-link" :disabled="updates.installing" @click="returnFromUpdates">返回原页面</button>
+        </div>
+        <AppUpdatePanel :updates="updates" :prepare-install="prepareLeave" />
+      </main>
+      <main v-else-if="!ready && page !== 'settings'" class="frame-page">
         <h1>{{ error ? '暂时无法读取本机数据' : '正在整理你的小窝' }}</h1>
         <p>已有课程与学习记录保留。</p>
         <button v-if="error" class="frame-button" @click="openSettings">打开设置</button>

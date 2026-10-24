@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle savedInstanceState) {
         registerPlugin(LingoNativePlugin.class);
         registerPlugin(CourseContentPlugin.class);
+        registerPlugin(AppUpdatePlugin.class);
         super.onCreate(savedInstanceState);
         applyLegacyEmulatorRenderingWorkaround();
         // Android 15+ enforces edge-to-edge for current targets. Keep WebView controls clear of bars.

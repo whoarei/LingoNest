@@ -1,0 +1,3 @@
+interface:
+  display_name: "LingoNest 版本发布"
+  short_description: "默认代码已测试，复用 GitHub CI 签名发布并确认 Release 已公开"

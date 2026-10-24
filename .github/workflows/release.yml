@@ -89,8 +89,15 @@ jobs:
           mkdir -p artifacts/release
           cp "$apk" "artifacts/release/lingonest-$RELEASE_VERSION-release.apk"
           printf '%s\n' "$actual" > artifacts/release/signing-certificate-sha256.txt
+      - name: Generate update manifest and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/generate-update-manifest.mjs artifacts/release
           cd artifacts/release
-          sha256sum "lingonest-$RELEASE_VERSION-release.apk" signing-certificate-sha256.txt > SHA256SUMS.txt
+          sha256sum "lingonest-$RELEASE_VERSION-release.apk" signing-certificate-sha256.txt update.json > SHA256SUMS.txt
       - uses: actions/upload-artifact@v7
         with:
           name: android-release
@@ -101,6 +108,10 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: android
+    concurrency:
+      group: release-publish-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -125,6 +136,11 @@ jobs:
       - name: Verify checksums
         working-directory: release-assets
         run: sha256sum --check SHA256SUMS.txt
+      - name: Verify update release advances latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-update-release.mjs release-assets/update.json
       - name: Publish verified assets
         env:
           GH_TOKEN: ${{ github.token }}
