@@ -172,6 +172,7 @@ async function go(target: Page, nextParent = target === "learn" ? false : parent
         if (ready.value)
             await refresh();
         await host.value?.refresh();
+        if (target === "detail" && !managed.value) target = "courses";
         if (target === "learn") {
             pluginModeId.value = selection.activeModeId.value;
             surface.value = "learning";
@@ -683,7 +684,7 @@ void (async () => {
         >删除课程</button>
       </main>
       <main v-if="ready && page === 'material'" class="frame-page">
-        <button class="frame-link" @click="go(parent ? 'detail' : 'courses')">返回{{ parent ? '课程详情' : '课程列表' }}</button>
+        <button class="frame-link" @click="go(parent ? 'detail' : 'courses')">返回{{ parent && managed ? '课程详情' : '课程列表' }}</button>
         <MaterialEditor
           v-if="parent && editing"
           :key="editorKey"

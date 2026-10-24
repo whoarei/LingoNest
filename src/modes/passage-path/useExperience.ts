@@ -204,7 +204,10 @@ export function useExperience() {
     await store.dispatch({ type: "next", sessionId: run.id, index: run.index });
     if (session.value?.status === "completed") message.value = "这一轮完成了！路径进度已保存。稳定表现需要隔天独立练习。";
   }); }
-  function inputChanged() { void persistInput().catch(failure => { if (current()) error.value = String(failure instanceof Error ? failure.message : failure); }); }
+  function inputChanged() {
+    error.value = "";
+    void persistInput().catch(failure => { if (current()) error.value = String(failure instanceof Error ? failure.message : failure); });
+  }
   async function reveal(kind: "source" | "hint") { await run(async () => {
     const run = session.value;
     if (run?.status === "active") await store.dispatch({ type: "assist", sessionId: run.id, index: run.index, kind });
@@ -313,7 +316,15 @@ export function useExperience() {
       bindManager(courseId.value); ready.value = true;
     });
   }
-  async function refreshContext() { await refreshDirectory(); data.value = await services.state.refresh(); await checkAudio(); sessionId.value = null; }
+  async function refreshContext() {
+    await refreshDirectory(); data.value = await services.state.refresh(); await checkAudio();
+    // A settings detour keeps the same learner/course/session. Detach only when
+    // the refreshed context no longer owns it (for example after a publication).
+    if (sessionId.value && (!session.value || session.value.status === "retired")) {
+      sessionId.value = null;
+      if (view.value === "practice") view.value = "home";
+    }
+  }
   onScopeDispose(() => { disposed = true; jobEpoch++; stopSubscription(); void requests.dispose();
     pool.forEach(item => item.scope.stop()); pool.clear(); });
   void boot();

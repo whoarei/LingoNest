@@ -54,8 +54,8 @@ test("single-question correction, returned audit and failed-save recovery preser
   await seed(page); await page.goto("/"); await generate(page);
   await page.getByLabel("我已核对全部原文、知识块与关卡安排").check();
   await page.getByRole("button", { name: "审核通过，下一题", exact: true }).click();
-  const approved = (await state(page)).candidates![0]!;
   await expect(page.getByLabel("查看候选题")).toHaveValue("1");
+  const approved = (await state(page)).candidates![0]!;
   await page.getByRole("button", { name: "退回修改", exact: true }).click();
   await expect.poll(async () => (await state(page)).candidates![0]!.returnedQuestionIds?.length).toBe(1);
   await page.getByRole("button", { name: "修改本题", exact: true }).click();
@@ -177,6 +177,7 @@ test("generation requires the complete bank audit and actual audio before public
 
 test("queued input and feedback survive reload, shared profile changes and a mode round trip", async ({ page }) => {
   await seed(page, { published: true }); await page.goto("/"); await page.getByRole("button", { name: "开始学习", exact: true }).click();
+  await expect(page.locator(".passage-practice")).toBeVisible();
   const choice = page.locator(".passage-choices button").first();
   if (await choice.count()) await choice.click();
   else if (await page.getByLabel("填写答案", { exact: true }).count()) await page.getByLabel("填写答案", { exact: true }).fill("unfinished");
@@ -261,7 +262,8 @@ test("new shared material must save before leaving and never publishes seven-ste
   await page.getByRole("button", { name: "新建课程", exact: true }).click();
   await page.getByLabel("课程标题", { exact: true }).fill("闯关新增教材草稿");
   await page.getByLabel("文章或课文原文", { exact: true }).fill("Hello, my friend.");
-  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置");
+  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置", false);
+  await expect(page.getByRole("alert").first()).toBeVisible();
   await expect(page.getByLabel("课程标题", { exact: true })).toHaveValue("闯关新增教材草稿");
   await expect(page.getByRole("radiogroup")).toHaveCount(0);
   await page.evaluate(() => { (window as any).__saveFailure = false; }); await navigate(page, "设置");

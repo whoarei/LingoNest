@@ -44,6 +44,7 @@ test("a parent dialog remains fully reachable when the mobile keyboard shortens 
   await page.setViewportSize({ width: 320, height: 280 });
   const dialog = page.getByRole("dialog", { name: "请家长确认", exact: true });
   const top = await dialog.boundingBox(); expect(top!.y).toBeGreaterThanOrEqual(0);
+  await page.screenshot({ path: "artifacts/review-20261024/parent-dialog-short.png" });
   await page.getByLabel("7加5的答案").fill("12");
   await dialog.getByRole("button", { name: "确认并继续" }).click();
   await expect(page.getByRole("navigation", { name: "家长导航" })).toBeVisible();

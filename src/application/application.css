@@ -12,7 +12,7 @@
 .lingonest-app .application-topbar>.frame-actions { min-width:0; max-width:100%; flex-wrap:nowrap; }
 .lingonest-app .frame-profile { min-width:0; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lingonest-app .application-topbar>.frame-actions>.frame-link { flex-shrink:0; }
-.lingonest-app .application-context h1,.lingonest-app .frame-page h1,.lingonest-app .application-focusbar>span { overflow-wrap:anywhere; }
+.lingonest-app .application-context h1,.lingonest-app .frame-page h1,.lingonest-app .application-focusbar>span { overflow-wrap:break-word; overflow-wrap:anywhere; }
 .lingonest-app .application-context { max-width:1044px; margin:0 auto; padding:24px 28px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid var(--frame-line); }
 .lingonest-app .application-context h1 { font-size:24px; margin:3px 0; line-height:1.4; }
 .lingonest-app .application-context p { margin:5px 0; color:#647366; font-size:13px; }
@@ -42,15 +42,15 @@
 .lingonest-app .frame-course-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border-bottom:1px solid var(--frame-line); padding:12px 0; }
 .lingonest-app .frame-course-entry { display:flex; align-items:center; gap:16px; flex:1; min-width:160px; text-align:left; padding:12px 0; border:0; background:none; color:inherit; font:inherit; cursor:pointer; }
 .lingonest-app .frame-course-entry strong,.lingonest-app .frame-course-entry small { display:block; }
-.lingonest-app .frame-course-entry>span:last-child { min-width:0; flex:1; overflow-wrap:anywhere; }
-.lingonest-app .frame-list-row>div { min-width:0; overflow-wrap:anywhere; }
+.lingonest-app .frame-course-entry>span:last-child { min-width:0; flex:1; overflow-wrap:break-word; overflow-wrap:anywhere; }
+.lingonest-app .frame-list-row>div { min-width:0; overflow-wrap:break-word; overflow-wrap:anywhere; }
 .lingonest-app .frame-pagination { margin-top:24px; justify-content:space-between; }
 .lingonest-app .frame-course-entry small { color:#6a786b; font-size:12px; margin-top:5px; }
 .lingonest-app .frame-book { display:grid; place-items:center; width:48px; height:60px; border-radius:6px 14px 14px 6px; background:#e5ecda; flex-shrink:0; }
 .lingonest-app .frame-tabs { display:flex; flex-wrap:wrap; gap:12px; border-bottom:1px solid var(--frame-line); margin:24px 0; }
 .lingonest-app .frame-tabs button { padding:10px 14px; border:0; border-bottom:2px solid transparent; background:none; color:#6a786b; font:inherit; cursor:pointer; }
 .lingonest-app .frame-tabs button[aria-current="page"] { border-bottom-color:#254e3d; color:#254e3d; }
-.lingonest-app .frame-source { white-space:pre-wrap; overflow-wrap:anywhere; background:#fffef9; padding:24px; border-radius:16px; }
+.lingonest-app .frame-source { white-space:pre-wrap; overflow-wrap:break-word; overflow-wrap:anywhere; background:#fffef9; padding:24px; border-radius:16px; }
 .lingonest-app .frame-note { padding:16px 18px; background:#f0ecda; color:#675b37; border-radius:12px; }
 .lingonest-app .frame-error { padding:16px 18px; background:#fae9e2; color:#8d4233; border-radius:12px; }
 .lingonest-app .frame-global-message { max-width:988px; margin:12px auto; }
@@ -101,7 +101,7 @@
 .lingonest-app .frame-global-message { position:fixed; bottom:104px; left:16px; right:16px; z-index:10030; margin:0 auto; box-shadow:0 8px 32px #20392c26; max-height:35vh; overflow:auto; }
 .lingonest-app .frame-save-progress { position:fixed; z-index:10031; top:10px; left:50%; transform:translateX(-50%); margin:0; padding:7px 16px; border-radius:24px; background:#fffef9; color:#254e3d; box-shadow:0 2px 16px #20392c22; }
 .lingonest-app .frame-note.frame-global-message { pointer-events:none; }
-.lingonest-app .frame-record-value { white-space:pre-wrap; overflow-wrap:anywhere; }
+.lingonest-app .frame-record-value { white-space:pre-wrap; overflow-wrap:break-word; overflow-wrap:anywhere; }
 .lingonest-app .application-focusbar { position:sticky; top:0; z-index:101; background:#f7f6f0; }
 .lingonest-app .application-context { padding-top:14px; padding-bottom:14px; align-items:center; }
 .lingonest-app .application-context h1 { font-size:24px; margin:5px 0; }

@@ -99,6 +99,7 @@ test("a guided oral round leads into a fresh independent attempt that resumes wi
 test("short rounds finish clearly and Enter drains pending input saves without duplicate answers", async ({ page }) => {
   await seedApplication(page, { mode: "passage-path", starter: true }); await page.goto("/");
   await page.getByRole("button", { name: "开始学习", exact: true }).click();
+  await expect(page.locator(".passage-practice")).toBeVisible();
   const initial = await passageSnapshot(page), run = initial.sessions.at(-1)!;
   expect(run.baseCount).toBe(4);
   let usedEnter = false;

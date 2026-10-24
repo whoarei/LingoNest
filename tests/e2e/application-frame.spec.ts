@@ -89,6 +89,7 @@ test("application and both plugin surfaces fit narrow screens and older WebViews
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (width === 390) await page.screenshot({ path: "artifacts/review-20261024/passage-home-mobile.png", fullPage: true });
   }
   await page.screenshot({ path: "artifacts/application-frame-passage.png", fullPage: true });
   await parentSpace(page); await switchMode(page, "七步");
@@ -97,6 +98,7 @@ test("application and both plugin surfaces fit narrow screens and older WebViews
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (width === 390) await page.screenshot({ path: "artifacts/review-20261024/seven-home-mobile.png", fullPage: true });
   }
   await page.screenshot({ path: "artifacts/application-frame-seven-step.png", fullPage: true });
 });
