@@ -84,7 +84,8 @@ test("unsaved material prevents navigation and mode changes until retry succeeds
   await page.getByRole("button", { name: "新建课程", exact: true }).click();
   await page.getByLabel("课程标题", { exact: true }).fill("切换前的教材草稿");
   await page.getByLabel("文章或课文原文", { exact: true }).fill("Hello, my friend.");
-  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置");
+  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置", false);
+  await expect(page.getByRole("alert").first()).toBeVisible();
   await expect(page.getByLabel("课程标题", { exact: true })).toHaveValue("切换前的教材草稿");
   await expect(page.getByRole("radiogroup")).toHaveCount(0);
   await page.evaluate(() => { (window as any).__saveFailure = false; }); await navigate(page, "设置");

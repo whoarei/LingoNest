@@ -61,6 +61,7 @@ test("failed practice save keeps input and the focus screen; retry and reload re
   else await page.locator(".passage-tokens button").first().click();
   await page.getByRole("button", { name: "保存并退出", exact: true }).first().click();
   await page.getByRole("button", { name: "保存进度并退出", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("模拟模式设置保存失败");
   await expect(page.locator(".application-focusbar")).toBeVisible();
   await expect(page.locator(".frame-modal")).toBeVisible();
   await page.evaluate(() => { (window as any).__modeSaveFailure = false; });

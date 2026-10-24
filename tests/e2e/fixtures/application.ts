@@ -38,8 +38,13 @@ export async function parentSpace(page: Page) {
   await expect(page.getByLabel("7加5的答案")).toBeVisible(); await adult(page);
   await expect(page.getByRole("navigation", { name: "家长导航" })).toBeVisible();
 }
-export async function navigate(page: Page, name: "概况" | "学习" | "课程" | "记录" | "设置") {
-  await page.locator(".application-navigation").getByRole("button", { name, exact: true }).click();
+export async function navigate(page: Page, name: "概况" | "学习" | "课程" | "记录" | "设置", settle = true) {
+  const button = page.locator(".application-navigation").getByRole("button", { name, exact: true });
+  await button.click();
+  if (!settle) return;
+  await expect(button).toHaveAttribute("aria-current", "page");
+  if (name === "设置") await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
+  if (name === "课程") await expect(page.getByRole("heading", { name: /^(课程管理|我的课程)$/ })).toBeVisible();
 }
 export async function switchMode(page: Page, mode: "七步" | "课文闯关") {
   await navigate(page, "设置");

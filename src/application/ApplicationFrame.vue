@@ -30,6 +30,7 @@ const overviewErrors = ref<Record<string, string>>({});
 const page = ref<Page>("learn"), parent = ref(false), ready = ref(false), busy = ref(false), error = ref(""), notice = ref("");
 const initializing = ref(true);
 const navigating = ref(false);
+const exiting = ref(false);
 const host = ref<InstanceType<typeof ModeHost> | null>(null);
 const materialEditor = ref<InstanceType<typeof MaterialEditor> | null>(null);
 const courseResources = ref<InstanceType<typeof CourseResources> | null>(null);
@@ -41,6 +42,7 @@ const pluginReturnLabel = computed(() => ({ learn: "返回学习空间", overvie
 const managedId = ref<string | null>(null), detailTab = ref<"material" | "modes" | "resources">("modes");
 const nickname = ref(""), rename = ref(""), creating = ref(false), deleted = ref(false), swipeId = ref<string | null>(null);
 const recordMode = ref(""), recordCourse = ref("");
+const recordPage = ref(1), recordPageSize = 50;
 const selectedRecord = shallowRef<(ModeRecord & { modeId: string }) | null>(null);
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 function notify(message: string, kind: "error" | "status" = "status") {
@@ -72,15 +74,26 @@ const managed = computed(() => directory.value.courses.find(item => item.id === 
 const modeTitle = computed(() => selection.modes.find(item => item.id === selection.activeModeId.value)?.title ?? "当前模式不可用");
 const pluginVisible = computed(() => page.value === "learn" && !!learner.value || page.value === "plugin");
 const focused = computed(() => pluginVisible.value && !!host.value?.adapter?.focused);
-const locked = computed(() => initializing.value || busy.value || navigating.value || selection.busy.value || !!pendingAction.value || !!host.value?.adapter?.busy || !!courseResources.value?.busy);
+const locked = computed(() => initializing.value || busy.value || navigating.value || exiting.value || selection.busy.value || !!pendingAction.value || !!host.value?.adapter?.busy || !!courseResources.value?.busy);
 const resources = computed(() => Object.values(overviews.value).flatMap(item => item.resources ?? []).filter(item => item.manifest.courseId === managedId.value));
 const reading = computed(() => managed.value ?? currentCourse.value);
 const reader = useSpeech(computed(() => overviews.value[selection.activeModeId.value]?.resources?.find(item => item.current && item.manifest.courseId === reading.value?.id)?.manifest ??
     { courseId: reading.value?.id ?? "application-reader", courseVersion: reading.value?.sourceRevision ?? "1", title: reading.value?.title ?? "教材原文", assets: [] }), speech.configuration);
-const courses = computed(() => directory.value.courses.filter(item => !!item.archivedAt === deleted.value));
-const records = computed(() => Object.entries(overviews.value).flatMap(([modeId, overview]) => overview.records.map(item => ({ ...item, modeId })))
+const courses = computed(() => directory.value.courses.filter(item => !!item.archivedAt === (parent.value && deleted.value)));
+watch([parent, () => directory.value.courses.some(item => item.archivedAt)], ([isParent, hasArchived]) => {
+    if (!isParent || !hasArchived) deleted.value = false;
+});
+const filteredRecords = computed(() => Object.entries(overviews.value).flatMap(([modeId, overview]) => overview.records.map(item => ({ ...item, modeId })))
     .filter(item => (!recordMode.value || item.modeId === recordMode.value) && (!recordCourse.value || item.courseId === recordCourse.value))
-    .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100));
+    .sort((a, b) => b.at.localeCompare(a.at)));
+const recordPageCount = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / recordPageSize)));
+const records = computed(() => filteredRecords.value.slice((recordPage.value - 1) * recordPageSize, recordPage.value * recordPageSize));
+watch([recordMode, recordCourse, () => learner.value?.id], () => { recordPage.value = 1; });
+watch(recordPageCount, count => { recordPage.value = Math.min(recordPage.value, count); });
+function changeRecordPage(delta: number) {
+    recordPage.value = Math.max(1, Math.min(recordPageCount.value, recordPage.value + delta));
+    window.scrollTo({ top: 0, behavior: "instant" });
+}
 const pendingCount = computed(() => Object.values(overviews.value).reduce((sum, overview) => sum + overview.pendingCount, 0));
 const nav = computed(() => parent.value
     ? [{ id: "overview", label: "概况", icon: "home" }, { id: "courses", label: "课程", icon: "book" }, { id: "records", label: "记录", icon: "chart" }, { id: "settings", label: "设置", icon: "settings" }]
@@ -90,7 +103,7 @@ const statusLabels = { missing: "尚未准备", draft: "准备中", review: "待
 function status(courseId: string, modeId = selection.activeModeId.value) { return overviews.value[modeId]?.courses.find(item => item.courseId === courseId)?.status ?? "missing"; }
 function courseTitle(id: string) { return directory.value.courses.find(item => item.id === id)?.title || "历史课程"; }
 function titleForMode(id: string) { return selection.modes.find(item => item.id === id)?.title ?? id; }
-function date(value: string) { return new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function date(value: string) { return new Date(value).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
 let refreshEpoch = 0, disposed = false;
 async function refresh() {
     const epoch = ++refreshEpoch;
@@ -320,6 +333,8 @@ async function confirmDelete() {
     }
 }
 async function exitPractice() {
+    if (exiting.value || busy.value || navigating.value || selection.busy.value) return;
+    exiting.value = true;
     error.value = "";
     try {
         await host.value?.exit();
@@ -329,8 +344,10 @@ async function exitPractice() {
     catch (failure) {
         error.value = failure instanceof Error ? failure.message : String(failure);
     }
+    finally { exiting.value = false; }
 }
 async function handleBack() {
+    if (busy.value || navigating.value || exiting.value || selection.busy.value) return;
     if (pendingAction.value) {
         pendingAction.value = null;
         return;
@@ -364,7 +381,7 @@ async function handleBack() {
     }
     if (page.value === "plugin") { await go(pluginReturnPage.value); return; }
     if (page.value === "material") {
-        await go(parent.value ? "detail" : "records");
+        await go(parent.value ? "detail" : "courses");
         return;
     }
     if (page.value === "detail") {
@@ -465,7 +482,7 @@ void (async () => {
     </p>
     <p v-else-if="notice" class="frame-note frame-global-message" role="status">{{ notice }}</p>
     <p v-if="busy || selection.busy.value" class="frame-save-progress" role="status">{{ selection.busy.value ? '正在保存进度并切换模式…' : '正在保存，请稍候…' }}</p>
-    <fieldset class="application-body" :disabled="!!pendingAction || !!deletion || selection.busy.value">
+    <fieldset class="application-body" :disabled="!!pendingAction || !!deletion || exitPrompt || exiting || selection.busy.value">
       <main v-if="!ready && page !== 'settings'" class="frame-page">
         <h1>{{ error ? '暂时无法读取本机数据' : '正在整理你的小窝' }}</h1>
         <p>已有课程与学习记录保留。</p>
@@ -689,14 +706,14 @@ void (async () => {
         <div class="frame-actions frame-filters">
           <label>
             学习模式
-            <select v-model="recordMode">
+            <select v-model="recordMode" aria-label="学习模式">
               <option value="">全部模式</option>
               <option v-for="mode in selection.modes" :key="mode.id" :value="mode.id">{{ mode.title }}</option>
             </select>
           </label>
           <label>
             课程
-            <select v-model="recordCourse">
+            <select v-model="recordCourse" aria-label="课程">
               <option value="">全部课程</option>
               <option v-for="item in directory.courses" :key="item.id" :value="item.id">{{ item.title }}</option>
             </select>
@@ -723,6 +740,11 @@ void (async () => {
           <button class="frame-link" @click="selectedRecord = item; go('record')">查看作答</button>
         </div>
         <p v-if="!records.length" class="frame-note">当前筛选下还没有作答记录。已有记录按孩子、课程和模式分别保存。</p>
+        <nav v-if="recordPageCount > 1" class="frame-actions frame-pagination" aria-label="记录分页">
+          <button class="frame-button secondary" :disabled="recordPage === 1 || locked" @click="changeRecordPage(-1)">上一页</button>
+          <span role="status">第 {{ recordPage }} / {{ recordPageCount }} 页 · 共 {{ filteredRecords.length }} 条</span>
+          <button class="frame-button secondary" :disabled="recordPage === recordPageCount || locked" @click="changeRecordPage(1)">下一页</button>
+        </nav>
       </main>
       <main v-if="ready && page === 'record' && selectedRecord" class="frame-page frame-record-detail">
         <div class="frame-page-heading"><div><span class="frame-caption">{{ titleForMode(selectedRecord.modeId) }} · 作答详情</span><h1>{{ selectedRecord.title }}</h1></div><button class="frame-link" @click="go('records')">返回学习记录</button></div>
@@ -821,7 +843,7 @@ void (async () => {
         <h2 id="frame-exit-title">先休息一下吗？</h2>
         <p>保存当前进度后退出，未提交的答案不会被记为答错。</p>
         <div class="frame-actions">
-          <button class="frame-button secondary" @click="exitPrompt = false">继续练习</button>
+          <button class="frame-button secondary" :disabled="exiting" @click="exitPrompt = false">继续练习</button>
           <button class="frame-button" :disabled="locked" @click="exitPractice">保存进度并退出</button>
         </div>
       </section>

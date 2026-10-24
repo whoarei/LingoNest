@@ -107,6 +107,7 @@ test("typed material becomes a playable seven-step course while the starter and 
   await page.getByRole("button", { name: "编辑词条 1：family", exact: true }).click();
   await page.getByLabel("释义 1", { exact: true }).fill("家人、家庭");
   await page.getByRole("button", { name: "保存词汇草稿", exact: true }).click();
+  await expect.poll(async () => (await state(page)).courses[0].vocabulary[0].meaning).toBe("家人、家庭");
   await page.reload(); await parentSpace(page); await openCourse(page, "My Family");
   await publish(page);
   expect((await state(page)).courses[0].package.exercises.map((item: any) => item.stageId)).toEqual(expect.arrayContaining(["S1", "S2", "S3", "S4", "S5", "S6", "S7"]));
@@ -243,7 +244,8 @@ test("save failure retains the editor and generation prevents navigation until c
   await page.waitForTimeout(550); expect((await state(page)).courses[0].vocabulary).toHaveLength(0);
   await page.getByRole("button", { name: "补充词汇", exact: true }).click();
   await page.getByLabel("词条 1", { exact: true }).fill("family"); await page.getByLabel("释义 1", { exact: true }).fill("家庭");
-  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置");
+  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置", false);
+  await expect(page.getByRole("alert").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "整理并确认重点词汇", exact: true })).toBeVisible();
   await expect(page.getByRole("radiogroup")).toHaveCount(0);
   await page.evaluate(() => { (window as any).__saveFailure = false; }); await navigate(page, "设置");
@@ -292,6 +294,7 @@ test("compact vocabulary preserves selection and edits, adds and removes entries
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await expect(page.locator(".vocabulary-editor")).toHaveCount(0);
   await page.getByRole("button", { name: "保存词汇草稿", exact: true }).click();
+  await expect.poll(async () => (await state(page)).courses[0].vocabulary[0].meaning).toBe("家人、家庭");
   const saved = (await state(page)).courses[0].vocabulary;
   expect(saved).toHaveLength(24);
   expect(saved[0]).toMatchObject({ term: "family", meaning: "家人、家庭", example: "I love my family.", selected: false, origin: "photo" });
@@ -314,6 +317,7 @@ test("OCR fills empty metadata and public material edits persist across reload",
   await expect(page.getByLabel("教材或单元（可选）", { exact: true })).toHaveValue("Unit 2 · Lesson 1");
   await page.getByLabel("课程标题", { exact: true }).fill("我们的家庭");
   await page.getByRole("button", { name: "保存教材", exact: true }).click();
+  await expect.poll(async () => (await state(page)).courses[0]?.title).toBe("我们的家庭");
   await page.reload(); await parentSpace(page); await openCourse(page, "我们的家庭");
   await expect(page.getByRole("heading", { name: "核对课程教材", exact: true })).toBeVisible();
   expect((await state(page)).courses[0].title).toBe("我们的家庭");
@@ -341,6 +345,7 @@ test("multiline OCR keeps existing material until the parent explicitly adopts i
   await page.getByRole("button", { name: "采用识别结果替换当前草稿", exact: true }).click();
   await expect(page.getByLabel("文章或课文原文", { exact: true })).toHaveValue("I love my family.\nMy mother is a teacher.");
   await page.getByRole("button", { name: "保存教材", exact: true }).click();
+  await expect.poll(async () => (await state(page)).courses[0]?.sourceText).toBe("I love my family.\nMy mother is a teacher.");
   expect((await state(page)).courses[0].sourceText).toBe("I love my family.\nMy mother is a teacher.");
 });
 
@@ -470,6 +475,7 @@ test("draft deletion preserves content on save failure and can be restored after
   await boot(page); await newDraft(page); await page.getByLabel("文章或课文原文", { exact: true }).fill("Hello, my friend.");
   await page.getByRole("button", { name: "保存教材", exact: true }).click(); await page.getByRole("button", { name: "返回课程详情", exact: true }).click();
   await page.evaluate(() => { (window as any).__saveFailure = true; }); await page.getByRole("button", { name: "删除课程", exact: true }).click();
+  await expect(page.getByRole("alert").first()).toContainText("模拟保存失败");
   expect((await state(page)).courses[0].deletedAt).toBeUndefined();
   await page.evaluate(() => { (window as any).__saveFailure = false; }); await page.getByRole("button", { name: "删除课程", exact: true }).click();
   await expect(page.getByRole("heading", { name: "课程管理", exact: true })).toBeVisible();
@@ -477,6 +483,7 @@ test("draft deletion preserves content on save failure and can be restored after
   await page.reload(); await parentSpace(page); await navigate(page, "课程");
   await page.getByRole("button", { name: "已删除（1）", exact: true }).click();
   await page.getByRole("button", { name: "恢复课程", exact: true }).click();
+  await expect.poll(async () => (await state(page)).courses[0].deletedAt).toBeUndefined();
   expect((await state(page)).courses[0].sourceText).toBe("Hello, my friend.");
   expect((await state(page)).courses[0].deletedAt).toBeUndefined();
 });
