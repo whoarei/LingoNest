@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onScopeDispose, ref } from "vue";
+import { computed, inject, onScopeDispose, ref, watch } from "vue";
 import type { MaterialCourse, MaterialInput } from "../../packages/learning-modes/catalog";
 import { catalogKey } from "../platform/catalog";
 import { contentNative } from "../platform/content";
@@ -17,15 +17,18 @@ const emit = defineEmits<{
 }>();
 const catalog = inject(catalogKey)!;
 const draft = ref<MaterialInput>(props.material ? JSON.parse(JSON.stringify(props.material)) : { title: "", subtitle: "", sourceText: "", images: [], supplementImages: [] });
-let id = props.material?.id ?? "", saved = JSON.stringify(draft.value), disposed = false;
+let id = props.material?.id ?? "", disposed = false;
+const saved = ref(JSON.stringify(draft.value));
 const busy = ref(false), job = ref(false), error = ref(""), message = ref(""), replacement = ref("");
 const recognizedMetadata = ref({ title: "", subtitle: "" });
 const readonly = computed(() => !!props.material && (props.material.builtin || props.material.sourceEditable === false));
+const dirty = computed(() => !readonly.value && saved.value !== JSON.stringify(draft.value));
+watch(draft, () => { message.value = ""; }, { deep: true });
 const requests = createContentRequests();
 async function persist() {
     if (job.value || busy.value)
         throw Error("请先完成或暂停教材处理，再离开。");
-    if (readonly.value || saved === JSON.stringify(draft.value))
+    if (!dirty.value)
         return;
     busy.value = true;
     error.value = "";
@@ -35,7 +38,7 @@ async function persist() {
             await catalog.updateMaterial(id, captured);
         else
             id = await catalog.createMaterial(captured);
-        saved = JSON.stringify(captured);
+        saved.value = JSON.stringify(captured);
         message.value = "教材已保存。";
         emit("saved", id);
     }
@@ -105,12 +108,13 @@ defineExpose({ prepareLeave: persist });
 </script>
 
 <template>
-  <section class="shared-content material-editor">
+  <section class="shared-content material-editor" :aria-busy="busy || job">
     <h1>{{ material ? '课程教材' : '新建教材' }}</h1>
     <p>教材由各学习模式共用。保存后，可以分别准备七步学习或闯关内容。</p>
     <p v-if="readonly" class="frame-note">这份教材已经用于学习内容，当前版本保持只读。原有内容和记录继续保留。</p>
     <p v-if="error" role="alert" class="frame-error">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
+    <p v-else-if="dirty" class="frame-caption" role="status">有未保存的修改。离开本页时会自动保存，也可以点击保存教材。</p>
     <section v-if="readonly">
       <h2>{{ draft.title }}</h2>
       <p>{{ draft.subtitle }}</p>

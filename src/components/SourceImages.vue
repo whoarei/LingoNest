@@ -3,6 +3,7 @@ import { ref, watch } from "vue";
 import type { SourceImage } from "../../packages/learning-modes/contracts";
 import { imageSource } from "../platform/content";
 import Icon from "./AppIcon.vue";
+import { useDialogFocus } from "../platform/dialog-focus";
 const props = defineProps<{
   images: SourceImage[];
   editable?: boolean;
@@ -12,6 +13,8 @@ const emit = defineEmits<{ change: [images: SourceImage[]] }>();
 const urls = ref<Record<string, string>>({}),
   errors = ref<string[]>([]),
   preview = ref<SourceImage | null>(null);
+const previewPanel = ref<HTMLElement | null>(null);
+useDialogFocus(previewPanel, () => { preview.value = null; });
 let epoch = 0;
 watch(
   () => props.images.map((image) => image.path).join("|"),
@@ -104,8 +107,10 @@ function move(index: number, delta: number) {
   </div>
   <div
     v-if="preview"
+    ref="previewPanel"
     class="modal-backdrop image-backdrop"
     role="dialog"
+    tabindex="-1"
     aria-modal="true"
     aria-label="课文原图"
     @click.self="preview = null"

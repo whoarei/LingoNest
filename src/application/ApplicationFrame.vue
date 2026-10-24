@@ -9,6 +9,7 @@ import { teachingModes } from "../modes/registry";
 import { isAndroid, native } from "../native";
 import { useSpeech, speechConfigurationKey } from "../platform/speech";
 import { notificationKey } from "../platform/notifications";
+import { useDialogFocus } from "../platform/dialog-focus";
 import ModeHost from "../modes/ModeHost.vue";
 import Icon from "../components/AppIcon.vue";
 import CourseModeSettings from "../components/CourseModeSettings.vue";
@@ -58,12 +59,16 @@ const returnLabel = computed(() => returnPage.value === "plugin"
     ? surface.value === "authoring" ? "返回内容准备" : surface.value === "confirm" ? "返回口语确认" : "返回学习报告"
     : ({ learn: "返回学习空间", courses: "返回课程列表", detail: "返回课程详情", profiles: "返回孩子档案", records: "返回学习记录" } as Partial<Record<Page, string>>)[returnPage.value] ?? "返回家长空间");
 const pendingAction = shallowRef<null | (() => Promise<void>)>(null), actionLabel = ref(""), adultAnswer = ref("");
+const adultDialog = ref<HTMLElement | null>(null), exitDialog = ref<HTMLElement | null>(null), deleteDialog = ref<HTMLElement | null>(null);
 const adultUnlocked = ref(false);
 const deletion = ref<{
     kind: "learner" | "course";
     id: string;
     name: string;
 } | null>(null), deleteName = ref("");
+useDialogFocus(adultDialog, () => { pendingAction.value = null; }, () => true, () => !!pendingAction.value);
+useDialogFocus(exitDialog, () => { exitPrompt.value = false; }, () => !exiting.value, () => exitPrompt.value);
+useDialogFocus(deleteDialog, () => { deletion.value = null; }, () => !busy.value, () => !!deletion.value);
 const speech = useSpeech({ courseId: "application-settings", courseVersion: "1", title: "英语小窝", assets: [] });
 const speechSettings = reactive(speech);
 provide(speechConfigurationKey, speech.configuration);
@@ -467,7 +472,7 @@ void (async () => {
         </span>
       </button>
       <div class="frame-actions">
-        <button v-if="learner" class="frame-profile" :disabled="locked" @click="enterParent('profiles')">{{ learner.nickname }}</button>
+        <button v-if="learner" class="frame-profile" :title="learner.nickname" :disabled="locked" @click="enterParent('profiles')">{{ learner.nickname }}</button>
         <button class="frame-link" :disabled="locked" @click="parent ? go('learn', false) : enterParent()">{{ parent ? '返回学习空间' : '家长空间' }}</button>
       </div>
     </header>
@@ -501,7 +506,7 @@ void (async () => {
       <section v-if="ready && page === 'learn' && learner && !focused" class="application-context">
         <div>
           <span class="frame-caption">正在学习 ·{{ learner.nickname }} <span class="frame-badge">{{ modeTitle }}</span></span>
-          <h1>{{ currentCourse?.title }}</h1>
+          <h1 :title="currentCourse?.title">{{ currentCourse?.title }}</h1>
           <p class="context-course-subtitle" :title="currentCourse?.subtitle">
             {{ currentCourse?.subtitle }}
           </p>
@@ -821,8 +826,10 @@ void (async () => {
     </nav>
     <div v-if="pendingAction" class="frame-modal-backdrop">
       <form
+        ref="adultDialog"
         class="frame-modal shared-content"
         role="dialog"
+        tabindex="-1"
         aria-modal="true"
         aria-labelledby="frame-adult-title"
         @submit.prevent="confirmAdult"
@@ -839,7 +846,7 @@ void (async () => {
       </form>
     </div>
     <div v-if="exitPrompt" class="frame-modal-backdrop">
-      <section class="frame-modal" role="dialog" aria-modal="true" aria-labelledby="frame-exit-title">
+      <section ref="exitDialog" class="frame-modal" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="frame-exit-title">
         <h2 id="frame-exit-title">先休息一下吗？</h2>
         <p>保存当前进度后退出，未提交的答案不会被记为答错。</p>
         <div class="frame-actions">
@@ -850,8 +857,10 @@ void (async () => {
     </div>
     <div v-if="deletion" class="frame-modal-backdrop">
       <form
+        ref="deleteDialog"
         class="frame-modal shared-content"
         role="dialog"
+        tabindex="-1"
         aria-modal="true"
         aria-labelledby="frame-delete-title"
         @submit.prevent="confirmDelete"
