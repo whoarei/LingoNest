@@ -99,6 +99,7 @@ export interface LearningUI {
     expectedRevision?: number,
   ): Promise<void>;
   refreshLearning(): void;
+  refreshContext(): Promise<void>;
   deleteLearner(): Promise<void>;
   dismissError(): void;
 }

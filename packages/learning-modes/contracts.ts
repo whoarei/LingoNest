@@ -31,6 +31,8 @@ export interface TeachingModeIdentity {
   version: string;
   title: string;
 }
+export type ModeSurface = "learning" | "authoring" | "report" | "confirm";
+export type ParentModeSurface = Exclude<ModeSurface, "learning">;
 
 /** Each mode owns the types and algorithms behind these four entry points. */
 export interface TeachingModeCore<TState, TAuthoring, TRuntime, TReporting> {
@@ -43,6 +45,8 @@ export interface TeachingModeCore<TState, TAuthoring, TRuntime, TReporting> {
 
 export interface TeachingModeRegistration<TExperience> {
   identity: Readonly<TeachingModeIdentity>;
+  surfaces: readonly ModeSurface[];
+  confirmationLabel?: string;
   /** A scoped teaching workspace; application navigation is provided by its host. */
   loadExperience(): Promise<TExperience>;
   /** Public scope is projected by the host, including pending deletions. */
@@ -53,7 +57,6 @@ export interface ModeOverview {
   courses: { courseId: string; status: "missing" | "draft" | "review" | "ready"; pending?: boolean }[];
   records: ModeRecord[];
   pendingCount: number;
-  canConfirm?: boolean;
   resources?: { label: string; manifest: CourseAudioManifest; current?: boolean }[];
 }
 
@@ -79,8 +82,15 @@ export function createTeachingModeRegistry<TExperience>(
     if (!/^[a-z][a-z0-9-]*$/.test(id) || !version.trim() || !title.trim())
       throw new Error("教学模式注册信息无效。");
     if (entries.has(id)) throw new Error(`教学模式重复注册：${id}`);
+    if (!Array.isArray(registration.surfaces) || !registration.surfaces.includes("learning") ||
+      registration.surfaces.some(surface => !["learning", "authoring", "report", "confirm"].includes(surface)) ||
+      new Set(registration.surfaces).size !== registration.surfaces.length ||
+      (registration.surfaces.includes("confirm") ? !registration.confirmationLabel?.trim() : registration.confirmationLabel !== undefined))
+      throw Error(`教学模式入口声明无效：${id}`);
     entries.set(id, Object.freeze({
       identity: Object.freeze({ id, version, title }),
+      surfaces: Object.freeze([...registration.surfaces]),
+      confirmationLabel: registration.confirmationLabel,
       loadExperience: registration.loadExperience,
       readOverview: registration.readOverview,
     }));
@@ -95,5 +105,10 @@ export function createTeachingModeRegistry<TExperience>(
     defaultModeId,
     modes: Object.freeze([...entries.values()]),
     requireMode,
+    requireSurface(id: string, surface: ModeSurface) {
+      const mode = requireMode(id);
+      if (!mode.surfaces.includes(surface)) throw Error(`该模式不支持此入口：${mode.identity.title}。`);
+      return mode;
+    },
   });
 }

@@ -25,6 +25,10 @@ export function createSevenStepServices(options: {
 }) {
   return { ...options,
     async boot() { await options.boot(); await options.state.load(); },
+    async refresh() {
+      await options.boot();
+      await options.queue.run(async () => { await options.refreshCatalog(); await options.state.refresh(); });
+    },
     get startupError() { return options.startupError(); },
     saveCourse(state: LocalState, record: CourseRecord) {
       assertNotDeleted(options.deletions, { kind: "course", id: record.id });

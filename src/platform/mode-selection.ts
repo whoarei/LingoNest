@@ -35,7 +35,7 @@ export function createModeSelection(
         error.value = failure instanceof Error ? failure.message : String(failure);
         throw failure;
       }
-    })();
+    })().catch(failure => { loaded = undefined; throw failure; });
     return loaded;
   }
   async function select(modeId: string) {
@@ -60,7 +60,12 @@ export function createModeSelection(
   };
 }
 export type ModeSelection = ReturnType<typeof createModeSelection>;
-export const modeSelectionKey: InjectionKey<ModeSelection> = Symbol("global-course-mode");
+export type ModeSelectionView = Pick<ModeSelection, "activeModeId" | "ready" | "busy" | "error"> & { readonly modes: readonly Readonly<TeachingModeIdentity>[] };
+export function modeSelectionView(selection: ModeSelection): ModeSelectionView {
+  return Object.freeze({ activeModeId: selection.activeModeId, ready: selection.ready, busy: selection.busy, error: selection.error,
+    modes: Object.freeze(selection.modes.map(mode => Object.freeze({ ...mode }))) });
+}
+export const modeSelectionKey: InjectionKey<ModeSelectionView> = Symbol("global-course-mode");
 export function useModeSelection() {
   const selection = inject(modeSelectionKey);
   if (!selection) throw Error("课程模式宿主尚未就绪。");

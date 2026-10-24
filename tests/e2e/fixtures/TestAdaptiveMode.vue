@@ -4,7 +4,20 @@ import { useWorkspace } from "../../../src/application/workspace";
 import { catalogKey } from "../../../src/platform/catalog";
 import { SnapshotRepository } from "../../../src/platform/snapshot-repository";
 import CourseModeNotice from "../../../src/components/CourseModeNotice.vue";
+import { useModeSelection } from "../../../src/platform/mode-selection";
 const workspace = useWorkspace(), catalog = inject(catalogKey)!;
+const modeView = useModeSelection();
+(window as any).__testWorkspace = {
+  modeKeys: Object.keys(modeView),
+  notify: () => workspace.notify("已卸载模式的过期通知", "error"),
+  openParent: () => workspace.openParent("authoring"),
+  openSettings: () => workspace.openSettings(),
+  async authorize() {
+    (window as any).__authorizationSettled = false;
+    await workspace.authorize("测试宿主确认", async () => { (window as any).__authorizedActions = ((window as any).__authorizedActions ?? 0) + 1; });
+    (window as any).__authorizationSettled = true;
+  },
+};
 const ready = ref(false), busy = ref(false);
 const selected = ref({ id: "", title: "" });
 const statuses = ref<Record<string, "review" | "ready">>({});

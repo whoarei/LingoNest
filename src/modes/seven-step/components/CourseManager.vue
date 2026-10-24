@@ -164,7 +164,6 @@ async function prepareDeparture() {
   } while (savedRevision !== draftRevision);
   preparedForLeave = true;
 }
-if (!workspace) onScopeDispose(modeSelection.beforeSwitch(prepareDeparture));
 async function prepareLeave(): Promise<boolean> {
   try { await prepareDeparture(); return true; }
   catch (failure) {

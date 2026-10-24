@@ -12,7 +12,6 @@ export async function readOverview(learnerId: string | null, materials: readonly
   const projections = new Map(learnerId ? courses.filter(course => course.package).map(course =>
     [course.id, projectLearning(state.events, course.package!.exercises, learnerId, new Date().toISOString())]) : []);
   return {
-    canConfirm: true,
     resources: courses.flatMap(course => course.package ? [{ label: `七步学习 · ${course.status === "published" ? "已发布" : "学习草稿"}`, current: course.status === "published", manifest: makeCourseAudioSpec(course.package.course, course.package.exercises) }] : []),
     courses: courses.filter(course => !course.deletedAt).map(course => ({ courseId: course.id, status: course.status === "published" ? "ready" : course.status === "review" ? "review" : "draft" })),
     records: attempts.flatMap(event => {

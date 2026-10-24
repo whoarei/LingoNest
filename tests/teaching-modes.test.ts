@@ -28,8 +28,8 @@ describe("independent teaching mode contracts", () => {
     const first = vi.fn(async () => ({ screen: "stages" }));
     const second = vi.fn(async () => ({ screen: "adaptive-session" }));
     const registry = createTeachingModeRegistry([
-      { identity: { id: "seven-step", version: "1", title: "七步" }, loadExperience: first },
-      { identity: { id: "adaptive", version: "3", title: "独立方法" }, loadExperience: second },
+      { identity: { id: "seven-step", version: "1", title: "七步" }, surfaces: ["learning", "report"], loadExperience: first },
+      { identity: { id: "adaptive", version: "3", title: "独立方法" }, surfaces: ["learning"], loadExperience: second },
     ], "seven-step");
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
@@ -40,7 +40,7 @@ describe("independent teaching mode contracts", () => {
   });
 
   it("rejects ambiguous registrations and unknown defaults without replacing data", () => {
-    const mode = { identity: { id: "example", version: "1", title: "示例" }, loadExperience: async () => null };
+    const mode = { identity: { id: "example", version: "1", title: "示例" }, surfaces: ["learning" as const], loadExperience: async () => null };
     expect(() => createTeachingModeRegistry([mode, mode], "example")).toThrow("重复");
     expect(() => createTeachingModeRegistry([mode], "missing")).toThrow("尚未安装");
     expect(() => createTeachingModeRegistry([{ ...mode, identity: { ...mode.identity, id: "../bad" } }], "../bad")).toThrow("无效");

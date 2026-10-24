@@ -27,6 +27,14 @@ beforeEach(() => {
   vi.stubGlobal("window", {});
 });
 describe("global mode selection", () => {
+  it("retries initialization after a read failure without replacing the repaired document", async () => {
+    const broken = JSON.stringify({ revision: 1, payload: '{"formatVersion":999}' }); values.set(key, broken);
+    const selection = createModeSelection(modes, "seven-step");
+    await expect(selection.load()).rejects.toThrow("不受支持"); expect(values.get(key)).toBe(broken);
+    const repaired = JSON.stringify({ revision: 2, payload: JSON.stringify({ formatVersion: 1, activeModeId: "test-adaptive" }) }); values.set(key, repaired);
+    await selection.load(); expect(selection.activeModeId.value).toBe("test-adaptive"); expect(selection.ready.value).toBe(true);
+    expect(values.get(key)).toBe(repaired);
+  });
   it("persists the initial global choice independently without changing any teaching bytes", async () => {
     const old = values.get(sevenKey);
     const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);

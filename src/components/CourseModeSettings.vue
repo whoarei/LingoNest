@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useModeSelection } from "../platform/mode-selection";
-const props = defineProps<{ authorize: (label: string, action: () => Promise<void>) => Promise<void> }>();
-const selection = useModeSelection();
+import type { ModeSelection } from "../platform/mode-selection";
+const props = defineProps<{ selection: ModeSelection; authorize: (label: string, action: () => Promise<void>) => Promise<void> }>();
+const selection = props.selection;
 const error = ref("");
 async function choose(id: string) {
   if (selection.busy.value || id === selection.activeModeId.value) return;

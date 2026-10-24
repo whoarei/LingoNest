@@ -994,6 +994,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     refreshLearning: () => {
       tick.value = new Date().toISOString();
     },
+    async refreshContext() { await services.refresh(); tick.value = new Date().toISOString(); },
     deleteLearner,
     dismissError: () => {
       error.value = "";

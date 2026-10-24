@@ -75,7 +75,7 @@ test("retrying an initial mode read failure recovers without a page reload or re
   await expect(page.getByRole("alert")).toContainText("模拟模式读取暂时失败");
   const original = await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.passage-path.v2"));
   await page.evaluate(() => { (window as any).__modeReadFailure = false; });
-  await page.getByRole("button", { name: "重新读取", exact: true }).click();
+  await page.getByRole("button", { name: "重新读取模式数据", exact: true }).click();
   await expect(page.getByRole("button", { name: "开始学习", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.passage-path.v2"))).toBe(original);
 });

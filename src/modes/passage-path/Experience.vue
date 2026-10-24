@@ -46,7 +46,7 @@ function moveReview(direction: number) {
     : app.reviewQuestions[reviewPosition.value + direction];
   if (item) app.reviewIndex = item.index;
 }
-watch(() => app.error, value => { if (workspace.visible.value && value) workspace.notify(value, "error"); });
+watch(() => app.error, value => { if (workspace.visible.value && app.ready && value) workspace.notify(value, "error"); });
 watch(() => app.message, value => { if (workspace.visible.value && value) workspace.notify(value); });
 async function enterParent() { await workspace.openParent("authoring"); }
 async function navigate(view: PassageView) {
@@ -93,11 +93,12 @@ watch([workspace.surface, workspace.courseId, workspace.visible, workspace.activ
       await app.openManager(id);
     }
   }
-  else if (workspace.surface.value === "report" || workspace.surface.value === "confirm") app.view = "report";
+  else if (workspace.surface.value === "report") app.view = "report";
   else if (app.view !== "practice" && app.view !== "home" && app.view !== "source") await app.navigate("home");
 }, { immediate: true });
 onScopeDispose(workspace.connect({
   get ready() { return app.ready; }, get busy() { return app.busy || app.generating || app.processingAudio; },
+  get loadError() { return app.ready ? "" : app.error; },
   get focused() { return workspace.surface.value === "learning" && app.view === "practice"; },
   get completed() { return app.view === "practice" && app.session?.status === "completed"; },
   prepareLeave,

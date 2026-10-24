@@ -4,6 +4,8 @@ import { sevenStepIdentity } from "../../../packages/learning-modes/seven-step/i
 
 export const sevenStepRegistration: TeachingModeRegistration<Component> = {
   identity: sevenStepIdentity,
+  surfaces: ["learning", "authoring", "report", "confirm"],
+  confirmationLabel: "口语确认",
   loadExperience: async () => (await import("./Experience.vue")).default,
   readOverview: async (learnerId, materials) => (await import("./overview")).readOverview(learnerId, materials),
 };

@@ -14,6 +14,18 @@ let env: ReturnType<typeof setupCatalog>;
 beforeEach(() => { env = setupCatalog(); });
 
 describe("public-data separation review", () => {
+  it("refreshes seven-step state through its own workspace port without relying on a catalog overview read", async () => {
+    const scope = effectScope(), app = scope.run(() => useLearning({ services: env.services.sevenStep }))!;
+    try {
+      await vi.waitFor(() => expect(app.ready.value).toBe(true));
+      const before = app.history.value.length, changed = sampleSeven();
+      const original = changed.events.find(event => event.type === "attempt")!;
+      changed.events.push({ ...original, id: "external-event", attempt: { ...original.attempt, id: "external-attempt", clientEventId: "external-client" } });
+      env.values.set(sevenKey, envelope(changed, 30));
+      await app.refreshContext(); expect(app.history.value).toHaveLength(before + 1);
+      expect(JSON.parse(env.values.get(sevenKey)!).revision).toBe(30);
+    } finally { scope.stop(); }
+  });
   it("recovers independent deletion plans even if an earlier plan still fails", async () => {
     const first = await env.services.catalog.createMaterial({ ...materialInput(), images: [materialInput().images[0]!] });
     const second = await env.services.catalog.createMaterial({ ...materialInput(), images: [materialInput().images[1]!] });

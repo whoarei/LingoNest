@@ -35,7 +35,7 @@ const nextStage = computed(
   () =>
     app.stages.find((stage) => stage.available && !stage.verified),
 );
-watch(() => app.error, value => { if (workspace.visible.value && value) workspace.notify(value, "error"); });
+watch(() => app.error, value => { if (workspace.visible.value && app.ready && value) workspace.notify(value, "error"); });
 watch(() => app.notice, value => { if (workspace.visible.value && value) workspace.notify(value); });
 const completedPercent = computed(() =>
   Math.round(
@@ -163,10 +163,11 @@ watch([workspace.surface, workspace.courseId, workspace.visible, workspace.activ
 }, { immediate: true });
 onScopeDispose(workspace.connect({
   get ready() { return app.ready; }, get busy() { return app.busy || !!courseManager.value?.busy; },
+  get loadError() { return app.ready ? "" : app.error; },
   get focused() { return workspace.surface.value === "learning" && app.view === "practice"; },
   get completed() { return app.view === "practice" && app.practice.finished; },
   prepareLeave, handleBack, exit,
-  async refresh() { app.refreshLearning(); await app.speech.refreshCourse().catch(failure => workspace.notify(failure instanceof Error ? failure.message : String(failure), "error")); },
+  async refresh() { await app.refreshContext(); await app.speech.refreshCourse().catch(failure => workspace.notify(failure instanceof Error ? failure.message : String(failure), "error")); },
   async readMaterial() { await app.openLesson(); if (app.error) throw Error(app.error); },
 }));
 function chooseOption(id: string) {

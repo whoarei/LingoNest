@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import CourseModeSettings from "./CourseModeSettings.vue";
+import type { ModeSelection } from "../platform/mode-selection";
+defineProps<{ selection: ModeSelection }>();
 const answer = ref("");
 const action = ref<(() => Promise<void>) | null>(null);
 const authorize = async (_label: string, run: () => Promise<void>) => { answer.value = ""; action.value = run; };
@@ -12,7 +14,7 @@ async function confirm() {
 </script>
 <template>
   <section aria-label="家长课程模式管理">
-    <CourseModeSettings :authorize="authorize" />
+    <CourseModeSettings :selection="selection" :authorize="authorize" />
     <form v-if="action" @submit.prevent="confirm" class="mode-confirm">
       <p>请陪伴学习的大人确认：7 + 5 = ?</p>
       <label>7加5的答案 <input v-model="answer" inputmode="numeric" autocomplete="off" /></label>

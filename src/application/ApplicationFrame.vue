@@ -4,7 +4,8 @@ import type { CatalogSnapshot, MaterialCourse } from "../../packages/learning-mo
 import type { ModeOverview } from "../../packages/learning-modes/contracts";
 import { applicationServicesKey } from "./services";
 import { type ModeSurface } from "./workspace";
-import { createModeSelection, modeSelectionKey } from "../platform/mode-selection";
+import { createModeSelection, modeSelectionKey, modeSelectionView } from "../platform/mode-selection";
+import { readModeOverview } from "../platform/mode-overview";
 import { teachingModes } from "../modes/registry";
 import { isAndroid, native } from "../native";
 import { useSpeech, speechConfigurationKey } from "../platform/speech";
@@ -23,7 +24,7 @@ import "./application.css";
 type Page = "learn" | "courses" | "records" | "record" | "overview" | "settings" | "profiles" | "detail" | "material" | "plugin";
 const services = inject(applicationServicesKey)!;
 const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);
-provide(modeSelectionKey, selection);
+provide(modeSelectionKey, modeSelectionView(selection));
 const directory = ref<CatalogSnapshot>({ learners: [], activeLearnerId: null, defaultCourseId: "", learningCourseIds: {}, courses: [] });
 const noFlexGap = ref(false);
 const overviews = shallowRef<Record<string, ModeOverview>>({});
@@ -62,9 +63,14 @@ watch(notice, value => { clearTimeout(noticeTimer); if (value) noticeTimer = set
 onScopeDispose(() => clearTimeout(noticeTimer));
 const returnPage = ref<Page>("learn"), exitPrompt = ref(false);
 const returnLabel = computed(() => returnPage.value === "plugin"
-    ? surface.value === "authoring" ? "返回内容准备" : surface.value === "confirm" ? "返回口语确认" : "返回学习报告"
+    ? surface.value === "authoring" ? "返回内容准备" : surface.value === "confirm" ? `返回${confirmationLabel(pluginModeId.value) ?? "模式确认"}` : "返回学习报告"
     : ({ learn: "返回学习空间", courses: "返回课程列表", detail: "返回课程详情", profiles: "返回孩子档案", records: "返回学习记录", record: "返回作答详情" } as Partial<Record<Page, string>>)[returnPage.value] ?? "返回家长空间");
 const pendingAction = shallowRef<null | (() => Promise<void>)>(null), actionLabel = ref(""), adultAnswer = ref("");
+let finishAuthorization: (() => void) | undefined;
+function cancelAuthorization() {
+    pendingAction.value = null;
+    const finish = finishAuthorization; finishAuthorization = undefined; finish?.();
+}
 const adultDialog = ref<HTMLElement | null>(null), exitDialog = ref<HTMLElement | null>(null), deleteDialog = ref<HTMLElement | null>(null);
 const adultUnlocked = ref(false);
 const deletion = ref<{
@@ -72,7 +78,7 @@ const deletion = ref<{
     id: string;
     name: string;
 } | null>(null), deleteName = ref("");
-useDialogFocus(adultDialog, () => { pendingAction.value = null; }, () => true, () => !!pendingAction.value);
+useDialogFocus(adultDialog, cancelAuthorization, () => true, () => !!pendingAction.value);
 useDialogFocus(exitDialog, () => { exitPrompt.value = false; }, () => !exiting.value, () => exitPrompt.value);
 useDialogFocus(deleteDialog, () => { deletion.value = null; }, () => !busy.value, () => !!deletion.value);
 const speech = useSpeech({ courseId: "application-settings", courseVersion: "1", title: "英语小窝", assets: [] });
@@ -114,6 +120,8 @@ const statusLabels = { missing: "尚未准备", draft: "准备中", review: "待
 function status(courseId: string, modeId = selection.activeModeId.value) { return overviews.value[modeId]?.courses.find(item => item.courseId === courseId)?.status ?? "missing"; }
 function courseTitle(id: string) { return directory.value.courses.find(item => item.id === id)?.title || "历史课程"; }
 function titleForMode(id: string) { return selection.modes.find(item => item.id === id)?.title ?? id; }
+function supportsSurface(id: string, target: ModeSurface) { return teachingModes.modes.find(mode => mode.identity.id === id)?.surfaces.includes(target) ?? false; }
+function confirmationLabel(id: string) { return teachingModes.modes.find(mode => mode.identity.id === id)?.confirmationLabel; }
 function date(value: string) { return new Date(value).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
 let refreshEpoch = 0, disposed = false;
 async function refresh() {
@@ -121,7 +129,7 @@ async function refresh() {
     const snapshot = await services.catalog.read();
     const results = await Promise.all(teachingModes.modes.map(async (mode) => {
         try {
-            return { id: mode.identity.id, value: await mode.readOverview?.(snapshot.activeLearnerId, snapshot.courses), error: "" };
+            return { id: mode.identity.id, value: await readModeOverview(mode, snapshot.activeLearnerId, snapshot.courses), error: "" };
         }
         catch (failure) {
             return { id: mode.identity.id, value: undefined, error: failure instanceof Error ? failure.message : String(failure) };
@@ -215,14 +223,17 @@ async function authorize(label: string, action: () => Promise<void>) {
     }
     actionLabel.value = label;
     adultAnswer.value = "";
+    const completed = new Promise<void>(resolve => { finishAuthorization = resolve; });
     pendingAction.value = action;
     await nextTick();
     document.querySelector<HTMLInputElement>("#frame-adult-answer")?.focus();
+    await completed;
 }
 async function confirmAdult() {
     if (adultAnswer.value.trim() !== "12" || !pendingAction.value)
         return;
     const action = pendingAction.value;
+    const finish = finishAuthorization; finishAuthorization = undefined;
     pendingAction.value = null;
     adultUnlocked.value = true;
     try {
@@ -231,6 +242,7 @@ async function confirmAdult() {
     catch (failure) {
         error.value = failure instanceof Error ? failure.message : String(failure);
     }
+    finally { finish?.(); }
 }
 async function enterParent(target: Page = "overview") {
     const enter = async () => { await go(target, true); };
@@ -240,6 +252,8 @@ async function enterParent(target: Page = "overview") {
         await authorize("进入家长空间", enter);
 }
 async function openPlugin(modeId: string, target: ModeSurface, courseId = currentCourseId.value) {
+    try { teachingModes.requireSurface(modeId, target); }
+    catch (failure) { error.value = failure instanceof Error ? failure.message : String(failure); return; }
     const open = async (nextParent = parent.value) => {
         if (navigating.value || busy.value || selection.busy.value)
             return;
@@ -375,7 +389,7 @@ async function exitPractice() {
 async function handleBack() {
     if (busy.value || navigating.value || exiting.value || selection.busy.value) return;
     if (pendingAction.value) {
-        pendingAction.value = null;
+        cancelAuthorization();
         return;
     }
     if (deletion.value) {
@@ -465,8 +479,10 @@ onMounted(() => {
                 backListener = handle;
         }).catch(() => { });
 });
-onScopeDispose(() => { disposed = true; refreshEpoch++; void backListener?.remove(); });
-void (async () => {
+onScopeDispose(() => { disposed = true; refreshEpoch++; cancelAuthorization(); void backListener?.remove(); });
+async function initialize() {
+    initializing.value = true;
+    error.value = "";
     try {
         await selection.load();
         pluginModeId.value = selection.activeModeId.value;
@@ -477,7 +493,8 @@ void (async () => {
         error.value = "无法读取本机数据：" + (failure instanceof Error ? failure.message : String(failure));
     }
     finally { initializing.value = false; }
-})();
+}
+void initialize();
 </script>
 
 <template>
@@ -590,8 +607,8 @@ void (async () => {
               <p>{{ overviewErrors[mode.id] || (overviews[mode.id]?.pendingCount ? `${overviews[mode.id]?.pendingCount} 条待确认` : '查看本模式的学习情况') }}</p>
             </div>
             <div class="frame-actions">
-              <button class="frame-link" @click="openPlugin(mode.id, 'report')">学习报告</button>
-              <button v-if="overviews[mode.id]?.canConfirm" class="frame-link" @click="openPlugin(mode.id, 'confirm')">口语确认</button>
+              <button v-if="supportsSurface(mode.id, 'report')" class="frame-link" @click="openPlugin(mode.id, 'report')">学习报告</button>
+              <button v-if="supportsSurface(mode.id, 'confirm')" class="frame-link" @click="openPlugin(mode.id, 'confirm')">{{ confirmationLabel(mode.id) }}</button>
             </div>
           </div>
           <p v-if="!pendingCount" class="frame-caption">各模式分别解释学习完成与能力掌握。</p>
@@ -694,7 +711,7 @@ void (async () => {
                 <span v-if="overviews[mode.id]?.courses.find(item => item.courseId === managed?.id)?.pending">· 新候选待审核</span>
               </p>
             </div>
-            <button class="frame-button secondary" :disabled="locked" @click="openPlugin(mode.id, 'authoring', managed.id)">{{ detailTab === 'resources' ? '准备课程音频' : '准备／查看内容' }}</button>
+            <button v-if="supportsSurface(mode.id, 'authoring')" class="frame-button secondary" :disabled="locked" @click="openPlugin(mode.id, 'authoring', managed.id)">{{ detailTab === 'resources' ? '准备课程音频' : '准备／查看内容' }}</button>
           </div>
         </section>
         <button
@@ -752,6 +769,7 @@ void (async () => {
               v-for="mode in selection.modes"
               :key="mode.id"
               class="frame-button secondary"
+              :disabled="!supportsSurface(mode.id, 'report')"
               @click="openPlugin(mode.id, 'report', recordCourse || currentCourseId)"
             >{{ mode.title }}报告</button>
           </div>
@@ -791,11 +809,12 @@ void (async () => {
           <h2>孩子档案</h2>
           <button class="frame-button secondary" @click="go('profiles')">管理孩子档案</button>
         </section>
-        <CourseModeSettings :authorize="authorize" />
+        <CourseModeSettings :selection="selection" :authorize="authorize" />
         <SpeechSettings :speech="speechSettings" />
         <ContentSettings />
         <section class="frame-section">
           <h2>本机数据维护</h2>
+          <button v-if="!ready" class="frame-button secondary" :disabled="initializing" @click="initialize">重新读取应用数据</button>
           <p v-if="services.cleanupStatus.pending" role="status">{{ services.cleanupStatus.pending }} 项删除任务尚未完成，相关课程或档案暂停使用，可重试或在下次启动时继续。</p>
           <p v-if="services.cleanupStatus.error" role="alert">{{ services.cleanupStatus.error }}</p>
           <button class="frame-button secondary" :disabled="locked" @click="perform(() => services.retryCleanup())">重试本机资源清理</button>
@@ -863,7 +882,7 @@ void (async () => {
         <input id="frame-adult-answer" v-model="adultAnswer" inputmode="numeric" autocomplete="off" />
         <div class="frame-actions">
           <button class="frame-button" :disabled="adultAnswer.trim() !== '12'">确认并继续</button>
-          <button type="button" class="frame-button secondary" @click="pendingAction = null">取消操作</button>
+          <button type="button" class="frame-button secondary" @click="cancelAuthorization">取消操作</button>
         </div>
         <p class="frame-caption">用于防止误触，不是身份认证。</p>
       </form>
