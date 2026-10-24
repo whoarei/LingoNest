@@ -16,6 +16,7 @@
 .passage-path-mode .passage-header p { color:#637d76; font-size:13px; margin:3px 0 0; }
 .passage-path-mode .passage-actions,.passage-path-mode .passage-tabs,.passage-path-mode .passage-tokens { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .passage-path-mode .passage-actions { margin:12px 0; }
+.passage-path-mode .passage-playback { position:fixed; bottom:0; left:0; right:0; z-index:121; margin:0 auto; max-width:680px; justify-content:center; padding:12px 16px; padding:12px 16px max(12px,env(safe-area-inset-bottom)); background:#fffef9; border-top:1px solid #dfe5d9; box-shadow:0 -4px 16px #20392c12; }
 .passage-path-mode .passage-tabs { margin:0 0 18px; }
 .passage-path-mode .passage-tabs [aria-current="page"] { background:#e0eee2; font-weight:700; }
 .passage-path-mode .passage-stack { display:grid; gap:18px; }
@@ -69,5 +70,10 @@
 .passage-path-mode .passage-selected button { border:0; background:transparent; padding:7px 9px; margin:0 2px 4px 0; }
 .passage-path-mode .passage-round-details { margin:24px 0 12px; font-size:14px; color:#536c5d; }
 .passage-path-mode .passage-round-details summary { cursor:pointer; padding:8px 0; }
+.passage-path-mode .passage-lesson-list { padding-left:18px; margin:12px 0 0; }
+.passage-path-mode .passage-lesson-list li { flex-wrap:wrap; margin:8px 0; gap:8px; }
+.passage-path-mode .passage-oral { margin:16px 0; }
+.passage-path-mode .passage-oral > button { margin:0 8px 12px 0; }
+.passage-path-mode .passage-oral input[type="radio"] { display:inline-block; width:20px; height:20px; min-height:20px; margin:0 8px 0 0; vertical-align:middle; }
 .passage-path-mode .passage-hero h2 { font-size:26px; margin:8px 0; }
 @media(max-width:480px) { .passage-path-mode .passage-preview-backdrop { padding:12px; } .passage-path-mode .passage-preview { max-height:calc(100vh - 24px); } .passage-path-mode .passage-review-groups { grid-template-columns:1fr; } }

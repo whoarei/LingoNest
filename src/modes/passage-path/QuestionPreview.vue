@@ -7,7 +7,7 @@ import QuestionInput from "./QuestionInput.vue";
 const props = defineProps<{ question: PassageQuestion; audioReady: boolean; busy: boolean }>();
 const emit = defineEmits<{ close: []; play: [text: string] }>();
 const response = ref<PassageResponse>({ text: "", selectedIds: [] }), checked = ref(false);
-const ids = computed(() => props.question.kind === "cloze" ? [] : (props.question.kind === "order" ? [...props.question.correctTokenIds].reverse() : props.question.options.map(option => option.id)));
+const ids = computed(() => props.question.kind === "cloze" || props.question.kind === "speak" ? [] : (props.question.kind === "order" ? [...props.question.correctTokenIds].reverse() : props.question.options.map(option => option.id)));
 const canCheck = computed(() => props.question.kind === "cloze" ? !!response.value.text.trim() : props.question.kind === "order" ? response.value.selectedIds.length === ids.value.length : response.value.selectedIds.length > 0);
 const correct = computed(() => checked.value && gradeQuestion(props.question, response.value));
 const panel = ref<HTMLElement | null>(null);
@@ -31,9 +31,12 @@ function reset() { checked.value = false; response.value = { text: "", selectedI
     <div class="passage-actions"><h2 id="passage-preview-title">孩子视角预览</h2><button type="button" @click="emit('close')">返回审核</button></div>
     <p class="field-help">这里可以先试答，不计入孩子的学习记录，也不会自动通过审核。</p>
     <h3>{{ question.prompt }}</h3>
+    <p v-if="question.context" class="passage-note">换个情境：{{ question.context.text }}</p>
     <template v-if="question.audioText"><button :disabled="!audioReady || busy" @click="emit('play', question.audioText!)">播放题目音频</button><p v-if="!audioReady" class="field-help">题目音频尚未就绪，准备音频后可试听。</p></template>
-    <QuestionInput v-model="response" :question="question" :display-ids="ids" :disabled="checked || busy" @submit="check" />
-    <button v-if="!checked" class="primary" :disabled="!canCheck || busy" @click="check">检查预览答案</button>
-    <div v-else class="passage-feedback" role="status"><h3>{{ correct ? '答对了' : '一起看一看' }}</h3><p>参考答案：{{ answerText(question) }}</p><p>{{ question.explanation }}</p><button @click="reset">重新试答</button></div>
+    <template v-if="question.kind === 'speak'"><p>正式练习会要求孩子录音、完整回听和自评，此处展示示范与要点。</p><p>示范表达：{{ question.sampleAnswer }}</p><ul><li v-for="criterion in question.criteria" :key="criterion">{{ criterion }}</li></ul></template>
+    <template v-else><QuestionInput v-model="response" :question="question" :display-ids="ids" :disabled="checked || busy" @submit="check" />
+      <button v-if="!checked" class="primary" :disabled="!canCheck || busy" @click="check">检查预览答案</button>
+      <div v-else class="passage-feedback" role="status"><h3>{{ correct ? '答对了' : '一起看一看' }}</h3><p>参考答案：{{ answerText(question) }}</p><p>{{ question.explanation }}</p><button @click="reset">重新试答</button></div>
+    </template>
   </section></div>
 </template>

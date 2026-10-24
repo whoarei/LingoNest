@@ -4,6 +4,7 @@ import { gradeQuestion, questionFingerprint, validateResponse } from "./grading"
 import type { PassageSession, PassageState } from "./model";
 import { packageFor, questionFor, referenceKey } from "./references";
 import { array, id, ids, learnerIdentity, record, requireValid, time, uniqueRecords } from "./validation";
+import { completedLessons, hasCurriculum, lessonQuestion, passageLessons } from "./curriculum";
 
 export const emptyPassageState = (): PassageState => ({ formatVersion: 1, packages: [], publications: [],
   sessions: [], attempts: [], completions: [], lastObservedAt: null });
@@ -46,7 +47,9 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
     validateSession(state, session);
     if (session.helpRequests !== undefined) {
       requireValid(array(session.helpRequests, 1000) && session.helpRequests.every(request => record(request) && (request.afterAnswer === undefined || typeof request.afterAnswer === "boolean") &&
-        ["source", "hint"].includes(request.kind) && session.queue.some(item => item.courseId === request.courseId && item.revision === request.revision && item.questionId === request.questionId)) &&
+        ["source", "hint", "sample"].includes(request.kind) && (request.questionId === null ? request.kind === "source" &&
+          (request.courseId === session.courseId && request.revision === session.revision || session.queue.some(item => item.courseId === request.courseId && item.revision === request.revision)) :
+          session.queue.some(item => item.courseId === request.courseId && item.revision === request.revision && item.questionId === request.questionId))) &&
         new Set(session.helpRequests.map(request => JSON.stringify([request.courseId, request.revision, request.questionId, request.kind]))).size === session.helpRequests.length, "主动查看记录无效或重复。");
     }
     if (session.status === "active") {
@@ -59,14 +62,17 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
   const positions = new Set<string>();
   for (const attempt of state.attempts) {
     requireValid(id(attempt.sessionId) && learnerIdentity(attempt.learnerId) && Number.isInteger(attempt.index) && attempt.index >= 0 &&
-      record(attempt.item) && time(attempt.at) && attempt.gradingVersion === "1" && typeof attempt.correct === "boolean" && typeof attempt.assisted === "boolean" &&
+      record(attempt.item) && time(attempt.at) && attempt.gradingVersion === "1" && (typeof attempt.correct === "boolean" || attempt.correct === null) && typeof attempt.assisted === "boolean" &&
       typeof attempt.evidenceEligible === "boolean" && typeof attempt.clockTrusted === "boolean", "作答事实格式无效。");
     const session = state.sessions.find(item => item.id === attempt.sessionId);
     requireValid(session && session.learnerId === attempt.learnerId && JSON.stringify(session.queue[attempt.index]) === JSON.stringify(attempt.item), "作答与会话题序不一致。");
     const position = JSON.stringify([session.id, attempt.index]);
     requireValid(!positions.has(position), "同一会话位置重复提交。"); positions.add(position);
     validateResponse(attempt.response);
+    requireValid(!attempt.response.oral || session.recordingPaths?.includes(attempt.response.oral.recordingPath), "提交录音缺少所属会话资源清单。");
+    requireValid(!attempt.response.oral || attempt.response.oral.recordingPath.startsWith(`recordings/${attempt.learnerId}/`) && attempt.response.oral.listened === true && !!attempt.response.oral.selfRating, "作答录音归属或回听状态无效。");
     const question = questionFor(state, attempt.item);
+    requireValid(packageFor(state, attempt.item.courseId, attempt.item.revision).rules.version !== "3" || question.kind !== "listen-choice" || attempt.response.audioPlayed === true, "听辨提交缺少完整播放记录。");
     const goal = packageFor(state, attempt.item.courseId, attempt.item.revision).goals.find(goal => goal.id === question.goalId)!;
     requireValid(gradeQuestion(question, attempt.response) === attempt.correct && (!attempt.evidenceEligible ||
       attempt.correct && attempt.clockTrusted && !attempt.assisted && !session.baseline && attempt.item.reason !== "repair" && question.demand !== "supported" &&
@@ -85,6 +91,8 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
     const session = state.sessions.find(session => session.id === completion.sessionId);
     requireValid(session && session.status === "completed" && session.kind === "path" && session.levelId === completion.levelId &&
       session.learnerId === completion.learnerId && session.courseId === completion.courseId && session.revision === completion.revision, "路径记录与完成会话不一致。");
+    const pkg = packageFor(state, completion.courseId, completion.revision);
+    requireValid(!hasCurriculum(pkg) || session.lesson === "communicate" && completedLessons(state, completion.learnerId, pkg, completion.levelId).length === passageLessons.length, "关卡必须完成全部短课。");
     const key = JSON.stringify([completion.learnerId, completion.courseId, completion.revision, completion.levelId]);
     requireValid(!completionKeys.has(key), "路径记录重复。"); completionKeys.add(key);
     const levels = packageFor(state, completion.courseId, completion.revision).levels;
@@ -92,13 +100,18 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
       state.completions.some(item => item.learnerId === completion.learnerId && item.courseId === completion.courseId && item.revision === completion.revision && item.levelId === level.id)), "路径跳过了前序关卡。");
   }
   requireValid(state.sessions.filter(session => session.kind === "path" && session.status === "completed")
-    .every(session => state.completions.some(item => item.sessionId === session.id)), "完成会话缺少路径记录。");
+    .every(session => hasCurriculum(packageFor(state, session.courseId, session.revision)) && session.lesson !== "communicate" || state.completions.some(item => item.sessionId === session.id)), "完成会话缺少路径记录。");
 }
 function validateSession(state: PassageState, session: PassageSession) {
   requireValid(learnerIdentity(session.learnerId) && id(session.courseId) && id(session.revision) && ["path", "replay", "practice"].includes(session.kind) &&
     ["active", "completed", "retired"].includes(session.status) && time(session.startedAt) && typeof session.baseline === "boolean" &&
-    Number.isSafeInteger(session.seed) && session.seed >= 0 && session.seed <= 0xFFFFFFFF && ["1", "2"].includes(session.schedulerVersion), "会话格式或版本无效。");
+    Number.isSafeInteger(session.seed) && session.seed >= 0 && session.seed <= 0xFFFFFFFF && ["1", "2", "3", "4", "5"].includes(session.schedulerVersion), "会话格式或版本无效。");
   const pkg = packageFor(state, session.courseId, session.revision);
+  requireValid(session.lesson === undefined ? !hasCurriculum(pkg) || session.levelId === null : hasCurriculum(pkg) && passageLessons.includes(session.lesson) && session.levelId !== null, "会话短课引用无效。");
+  if (session.lesson) {
+    const done = completedLessons(state, session.learnerId, pkg, session.levelId!);
+    requireValid(session.kind === "replay" ? done.includes(session.lesson) : passageLessons.slice(0, passageLessons.indexOf(session.lesson)).every(lesson => done.includes(lesson)), "短课跳过了前置课程。");
+  }
   const purgedBase = session.purgedBaseCount ?? 0, purgedCount = session.purgedQuestionCount ?? 0;
   requireValid(Number.isInteger(purgedBase) && purgedBase >= 0 && purgedBase <= pkg.rules.maxCrossCourse &&
     Number.isInteger(purgedCount) && purgedCount >= purgedBase && purgedCount <= purgedBase + pkg.rules.maxRepairs &&
@@ -117,7 +130,8 @@ function validateSession(state: PassageState, session: PassageSession) {
     requireValid(record(item) && id(item.courseId) && id(item.revision) && id(item.questionId) &&
       ["current", "due", "weak", "repair"].includes(item.reason) && ids(item.displayIds, 60) && !session.purgedCourseIds?.includes(item.courseId), "题序格式无效。");
     const question = questionFor(state, item);
-    const expectedIds = question.kind === "cloze" ? [] : (question.kind === "order" ? question.tokens : question.options).map(option => option.id);
+    requireValid(!session.lesson || index >= session.baseCount || item.courseId !== session.courseId || lessonQuestion(question, session.lesson), "基础题不属于当前短课。");
+    const expectedIds = question.kind === "cloze" || question.kind === "speak" ? [] : (question.kind === "order" ? question.tokens : question.options).map(option => option.id);
     requireValid(item.displayIds.length === expectedIds.length && item.displayIds.every(id => expectedIds.includes(id)) &&
       (index < session.baseCount ? item.reason !== "repair" : item.reason === "repair"), "题序选项或补练位置无效。");
     const key = JSON.stringify([item.courseId, item.revision, item.questionId]);
@@ -127,6 +141,10 @@ function validateSession(state: PassageState, session: PassageSession) {
   }
   requireValid(session.queue.slice(0, session.baseCount).filter(item => item.courseId !== session.courseId).length <= pkg.rules.maxCrossCourse, "跨课题量超过预算。");
   validateResponse(session.input);
+  requireValid(session.recordingPaths === undefined || array(session.recordingPaths, 120) && new Set(session.recordingPaths).size === session.recordingPaths.length &&
+    session.recordingPaths.every(path => typeof path === "string" && path.startsWith(`recordings/${session.learnerId}/`) && /^recordings\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\.m4a$/.test(path)), "会话录音清单无效。");
+  requireValid(!session.input.oral || session.input.oral.recordingPath.startsWith(`recordings/${session.learnerId}/`), "草稿录音不属于当前孩子。");
+  requireValid(!session.input.oral || session.recordingPaths?.includes(session.input.oral.recordingPath), "草稿录音缺少所属会话资源清单。");
   if (session.index < session.queue.length) gradeQuestion(questionFor(state, session.queue[session.index]!), session.input);
   requireValid(array(session.assistedGoals, 160), "辅助记录无效。");
   const assistedKeys = new Set<string>();

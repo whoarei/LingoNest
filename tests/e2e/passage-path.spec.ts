@@ -116,7 +116,7 @@ test("one exit dialog preserves wrong-answer detail and separates explicit help 
   await expect(page.locator(".frame-record-detail")).toContainText("需要再练");
   await expect(page.locator(".frame-record-detail")).toContainText("主动查看原文");
   await page.getByRole("button", { name: "查看模式报告", exact: true }).click();
-  await expect(page.getByText(/主动查看提示或原文 1 项/)).toBeVisible();
+  await expect(page.getByText(/主动查看辅助 1 项/)).toBeVisible();
   await page.getByRole("button", { name: "返回作答详情", exact: true }).click();
   await expect(page.locator(".frame-record-detail")).toContainText(question.prompt);
 });
@@ -160,16 +160,18 @@ test("generation requires the complete bank audit and actual audio before public
     const before = await state(page), session = before.sessions.find(item => item.status === "active"); if (!session) break;
     const item = session.queue[session.index]!, pkg = before.packages.find(pkg => pkg.courseId === item.courseId && pkg.revision === item.revision)!;
     const question = pkg.questions.find(question => question.id === item.questionId)!;
+    if (question.kind === "listen-choice") await page.getByRole("button", { name: "播放题目音频", exact: true }).click();
     if (question.kind === "cloze") await page.getByLabel("填写答案", { exact: true }).fill(question.answers[0]!);
     else if (question.kind === "order") for (const id of question.correctTokenIds) await page.locator(".passage-tokens").getByRole("button", { name: question.tokens.find(token => token.id === id)!.text, exact: true }).click();
-    else await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
+    else if ("options" in question) await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
     await page.getByRole("button", { name: "检查答案", exact: true }).click();
     await expect(page.locator(".passage-feedback")).toContainText("答对了");
     await page.locator(".passage-feedback").getByRole("button", { name: "继续", exact: true }).click();
     await expect(page.locator(".passage-feedback")).toHaveCount(0);
   }
   await expect(page.getByRole("heading", { name: "这一轮完成了", exact: true })).toBeVisible();
-  expect((await state(page)).completions).toHaveLength(1);
+  expect((await state(page)).completions).toHaveLength(0);
+  expect((await state(page)).sessions.at(-1)!.lesson).toBe("discover");
   const after = await oldState(page); expect(after).toEqual(original);
   await page.getByRole("button", { name: "返回学习路径", exact: true }).click();
   await page.screenshot({ path: "artifacts/passage-path-home-390.png", fullPage: true });
@@ -313,6 +315,15 @@ test("real cross-course review shows its own original and audio and excludes ano
     const question = current.packages.find(pkg => pkg.courseId === item.courseId && pkg.revision === item.revision)!.questions.find(question => question.id === item.questionId)!;
     if (index === crossIndex) {
       await expect(page.locator(".passage-practice .eyebrow").filter({ hasText: "穿插复习" })).toContainText(record.title);
+      await exit(page);
+      await page.getByRole("button", { name: "课文原文", exact: true }).click();
+      await expect(page.locator(".passage-original h2")).toContainText(starterRecord.title);
+      const paused = (await state(page)).sessions.find(session => session.id === run.id)!;
+      expect(paused.assistedGoals.some(goal => goal.courseId === record.id)).toBe(false);
+      expect(paused.helpRequests).toContainEqual({ courseId: starterRecord.id, revision: "package-1", questionId: null, kind: "source" });
+      await page.getByRole("button", { name: "学习路径", exact: true }).click();
+      await page.getByRole("button", { name: "继续学习", exact: true }).click();
+      await expect(page.locator(".passage-practice .eyebrow").filter({ hasText: "穿插复习" })).toContainText(record.title);
       await page.getByRole("button", { name: "查看原文", exact: true }).click();
       await expect(page.locator(".passage-original h2")).toContainText(record.title);
       await page.getByRole("button", { name: "朗读原文 turn-1", exact: true }).click();
@@ -320,7 +331,7 @@ test("real cross-course review shows its own original and audio and excludes ano
     }
     if (question.kind === "cloze") await page.getByLabel("填写答案", { exact: true }).fill(question.answers[0]!);
     else if (question.kind === "order") for (const id of question.correctTokenIds) await page.locator(".passage-tokens").getByRole("button", { name: question.tokens.find(token => token.id === id)!.text, exact: true }).click();
-    else await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
+    else if ("options" in question) await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
     await page.getByRole("button", { name: "检查答案", exact: true }).click();
     await expect(page.locator(".passage-feedback")).toContainText("答对了");
     if (index < crossIndex) {

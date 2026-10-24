@@ -2,31 +2,29 @@ import type { InjectionKey } from "vue";
 import type { PassageReview, PassageState, RuntimeContext } from "../../../packages/learning-modes/passage-path/model";
 import type { CatalogSelection, MaterialCourse } from "../../../packages/learning-modes/catalog";
 import { makePassageAudioManifest } from "../../../packages/learning-modes/passage-path/authoring";
-import { createPassageSource } from "../../../packages/learning-modes/passage-path/authoring";
 import { removePassageCourse, removePassageLearner } from "../../../packages/learning-modes/passage-path/deletion";
 import { PassageStore } from "../../../packages/learning-modes/passage-path/store";
 import type { MutationQueue, SharedSnapshot } from "../../platform/shared-snapshot";
 import type { DeletionParticipant, OwnedResource } from "../../platform/deletions";
 import { publishPassagePackage } from "../../../packages/learning-modes/passage-path/runtime";
 import { copy, requireValid } from "../../../packages/learning-modes/passage-path/validation";
+import { passageSourceFromMaterial } from "./material";
 
-function resources(state: PassageState, courseId?: string): OwnedResource[] {
-  return [...state.packages, ...(state.candidates ?? []).map(item => item.package)].filter(pkg => courseId === undefined || pkg.courseId === courseId).flatMap(pkg => [
+function resources(state: PassageState, courseId?: string, learnerId?: string): OwnedResource[] {
+  const recordings = state.sessions.filter(session => (courseId === undefined || session.courseId === courseId) && (learnerId === undefined || session.learnerId === learnerId))
+    .flatMap(session => session.recordingPaths ?? []);
+  return [...recordings.map(path => ({ kind: "recording" as const, path })), ...[...state.packages, ...(state.candidates ?? []).map(item => item.package)].filter(pkg => learnerId === undefined && (courseId === undefined || pkg.courseId === courseId)).flatMap(pkg => [
     ...(pkg.source.images ?? []).filter(image => image.path.startsWith("course-images/")).map(image => ({ kind: "image" as const, path: image.path })),
     ...(/^user\.[a-f0-9]{32}$/.test(pkg.courseId) ? [{ kind: "audio" as const, course: makePassageAudioManifest(pkg) }] : []),
-  ]);
+  ])];
 }
 export function passageDeletionParticipant(state: SharedSnapshot<PassageState>): DeletionParticipant {
   return {
     id: "passage-path",
-    async prepare(target) { const current = await state.refresh(); return target.kind === "course" ? resources(current, target.id) : []; },
+    async prepare(target) { const current = await state.refresh(); return target.kind === "course" ? resources(current, target.id) : resources(current, undefined, target.id); },
     async remove(target) { await state.update(value => target.kind === "course" ? removePassageCourse(value, target.id) : removePassageLearner(value, target.id)); },
     async retained() { return resources(await state.refresh()); },
   };
-}
-export function passageSourceFromMaterial(material: MaterialCourse) {
-  return createPassageSource({ courseId: material.id, revision: material.sourceRevision, title: material.title, sourceText: material.sourceText,
-    images: [...material.images, ...material.supplementImages] });
 }
 export function createPassageServices(state: SharedSnapshot<PassageState>, queue: MutationQueue,
   selection: () => CatalogSelection, readMaterial: (id: string) => Promise<MaterialCourse>, refreshCatalog: () => Promise<void>) {

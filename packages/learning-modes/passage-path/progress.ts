@@ -11,6 +11,7 @@ export function projectGoalProgress(state: PassageState, learnerId: string, pkg:
       const question = pkg.questions.find(question => question.id === attempt.item.questionId)!;
       if (question.goalId !== goal.id) continue;
       seen = true;
+      if (attempt.correct === null) continue;
       if (attempt.clockTrusted) logicalTime = Math.max(logicalTime ?? 0, Date.parse(attempt.at));
       if (!attempt.correct) { weak = true; successes.clear(); }
       if (attempt.correct && attempt.evidenceEligible && !successes.has(attempt.sessionId) &&

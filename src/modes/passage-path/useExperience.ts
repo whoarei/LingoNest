@@ -1,21 +1,26 @@
 import { computed, effectScope, inject, onScopeDispose, reactive, ref, watch } from "vue";
 import type { CatalogSnapshot, MaterialInput } from "../../../packages/learning-modes/catalog";
-import type { PassagePackage, PassageResponse, PassageReview } from "../../../packages/learning-modes/passage-path/model";
+import type { PassageLesson, PassagePackage, PassageResponse, PassageReview } from "../../../packages/learning-modes/passage-path/model";
 import { emptyPassageState } from "../../../packages/learning-modes/passage-path/state";
 import { compilePassagePackage, makePassageAudioManifest } from "../../../packages/learning-modes/passage-path/authoring";
-import { reviseQuestion, reviseOutline, type PassageOutline } from "../../../packages/learning-modes/passage-path/review";
+import { latestReviewForSource, reviseQuestion, reviseOutline, type PassageOutline } from "../../../packages/learning-modes/passage-path/review";
 import type { PassageQuestion } from "../../../packages/learning-modes/passage-path/model";
 import { generatePassageCandidate } from "../../../packages/learning-modes/passage-path/prompts";
 import { passageReport } from "../../../packages/learning-modes/passage-path/reporting";
 import { questionFor, packageFor } from "../../../packages/learning-modes/passage-path/references";
 import { copy } from "../../../packages/learning-modes/passage-path/validation";
-import { passageServicesKey, passageSourceFromMaterial } from "./services";
+import { passageServicesKey } from "./services";
+import { currentMaterialReviews, passageSourceFromMaterial } from "./material";
 import { catalogKey } from "../../platform/catalog";
 import { useModeSelection } from "../../platform/mode-selection";
 import { createContentRequests } from "../../platform/content-requests";
 import { contentNative } from "../../platform/content";
 import { useSpeech } from "../../platform/speech";
 import { useWorkspace } from "../../application/workspace";
+import { learningAudioPackages } from "./learning-audio";
+import { isAndroid, native } from "../../native";
+import { roundSummary, reviewSuggestion } from "../../../packages/learning-modes/passage-path/summary";
+import { lessonQuestion } from "../../../packages/learning-modes/passage-path/curriculum";
 
 export type PassageView = "home" | "practice" | "source" | "parent" | "settings" | "report";
 const identity = (prefix: string) => `${prefix}.${Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
@@ -23,7 +28,7 @@ export function useExperience() {
   const services = inject(passageServicesKey)!, catalog = inject(catalogKey)!;
   const workspace = useWorkspace();
   const mode = useModeSelection(), requests = createContentRequests();
-  const ready = ref(false), busy = ref(false), generating = ref(false), error = ref(""), message = ref("");
+  const ready = ref(false), busy = ref(false), generating = ref(false), playing = ref(false), error = ref(""), message = ref("");
   const view = ref<PassageView>("home"), settingsOrigin = ref<PassageView>("home");
   const data = ref(emptyPassageState()), directory = ref<CatalogSnapshot>({ learners: [], activeLearnerId: null, defaultCourseId: "", learningCourseIds: {}, courses: [] });
   const learner = computed(() => directory.value.learners.find(item => item.id === directory.value.activeLearnerId));
@@ -31,6 +36,7 @@ export function useExperience() {
   const course = computed(() => directory.value.courses.find(item => item.id === courseId.value));
   const publication = computed(() => data.value.publications.find(item => item.courseId === courseId.value));
   const pkg = computed(() => data.value.packages.find(item => item.courseId === courseId.value && item.revision === publication.value?.revision));
+  const candidateAvailable = computed(() => currentMaterialReviews(data.value.candidates ?? [], course.value ? [course.value] : []).length > 0);
   const baseSpeech = useSpeech({ courseId: "passage-settings", courseVersion: "1", title: "课文闯关", assets: [] });
   const pendingAudio = ref(0);
   const processingAudio = computed(() => pendingAudio.value > 0);
@@ -60,10 +66,18 @@ export function useExperience() {
   const questionPackage = computed(() => item.value ? packageFor(data.value, item.value.courseId, item.value.revision) : pkg.value);
   const feedback = computed(() => data.value.attempts.find(attempt => attempt.id === session.value?.feedbackAttemptId));
   const response = ref<PassageResponse>({ text: "", selectedIds: [] });
+  const recording = ref(false), microphoneDenied = ref(false);
+  let startingRecording: Promise<void> | undefined;
+  let recordPlayback = false;
+  const recordingScope = () => JSON.stringify([learner.value?.id, courseId.value, session.value?.id, session.value?.index,
+    workspace.visible.value, workspace.surface.value, workspace.activation.value]);
+  const summary = computed(() => session.value ? roundSummary(data.value, session.value) : null);
+  const clock = ref(new Date().toISOString());
+  const reviewDue = computed(() => pkg.value && learner.value ? reviewSuggestion(data.value, learner.value.id, pkg.value, clock.value) : null);
   const originalOpen = ref(false), hintOpen = ref(false);
   const report = computed(() => pkg.value && learner.value ? passageReport(data.value, learner.value.id, pkg.value.courseId, pkg.value.revision) : null);
   const activeRun = computed(() => data.value.sessions.some(item => item.status === "active" && item.learnerId === learner.value?.id && item.courseId === courseId.value));
-  let disposed = false, jobEpoch = 0;
+  let disposed = false, jobEpoch = 0, playbackEpoch = 0;
   const current = () => !disposed && (mode.activeModeId.value === "passage-path" || workspace.surface.value === "report" || workspace.parent.value && workspace.surface.value === "authoring");
   const store = services.createStore(() => ({ activeModeId: current() && mode.activeModeId.value === "passage-path" && workspace.surface.value === "learning" ? "passage-path" : "unloaded",
     learnerId: learner.value?.id ?? "", courseId: courseId.value,
@@ -80,15 +94,19 @@ export function useExperience() {
   const managedId = ref("");
   const managed = computed(() => directory.value.courses.find(item => item.id === managedId.value));
   const material = ref<MaterialInput>({ title: "", subtitle: "", sourceText: "", images: [], supplementImages: [] });
-  let savedMaterial = "", savedReview = "";
+  let savedMaterial = "";
+  const savedReview = ref("");
   const review = ref<PassageReview | null>(null), reviewIndex = ref(0);
+  const reviewDirty = computed(() => !!review.value && savedReview.value !== JSON.stringify(review.value));
   const reviewQuestion = computed(() => review.value?.package.questions[reviewIndex.value]);
   const editingQuestion = ref(false);
   const editingOutline = ref(false);
   const reviewFilter = ref<"all" | "pending" | "returned">("all");
   const reviewLevel = ref("all"), reviewGoal = ref("all");
+  const reviewLesson = ref<PassageLesson | "all">("all");
   const reviewGroupQuestions = computed(() => review.value?.package.questions.map((question, index) => ({ question, index })).filter(({ question }) => {
     if (reviewGoal.value !== "all" && question.goalId !== reviewGoal.value) return false;
+    if (reviewLesson.value !== "all" && !lessonQuestion(question, reviewLesson.value)) return false;
     const level = review.value!.package.levels.find(level => level.id === reviewLevel.value);
     if (level && ![...level.newGoalIds, ...level.reviewGoalIds].includes(question.goalId)) return false;
     return true;
@@ -103,21 +121,32 @@ export function useExperience() {
       { title: "", subtitle: "", sourceText: "", images: [], supplementImages: [] };
     savedMaterial = JSON.stringify(material.value);
     const candidates = data.value.candidates?.filter(item => item.package.courseId === id) ?? [];
-    review.value = copy(candidates[candidates.length - 1] ?? null);
-    savedReview = JSON.stringify(review.value); editingQuestion.value = false; editingOutline.value = false;
-    reviewLevel.value = "all"; reviewGoal.value = "all";
+    review.value = null;
+    if (found && candidates.length) {
+      try { review.value = latestReviewForSource(candidates, passageSourceFromMaterial(found)); } catch { /* An incomplete edited source also invalidates the old bank. */ }
+      if (!review.value) message.value = "教材已更新，旧候选题库不再适用。请按最新教材重新生成，旧记录保留。";
+    }
+    savedReview.value = JSON.stringify(review.value); editingQuestion.value = false; editingOutline.value = false;
+    reviewLevel.value = "all"; reviewGoal.value = "all"; reviewLesson.value = "all";
     reviewFilter.value = review.value && review.value.reviewedQuestionIds.length < review.value.package.questions.length ? "pending" : "all";
     reviewIndex.value = Math.max(0, review.value?.package.questions.findIndex(question => !review.value!.reviewedQuestionIds.includes(question.id)) ?? 0);
   }
   async function refreshDirectory() { const value = await catalog.read(); if (current()) directory.value = value; }
   async function checkAudio() {
-    for (const publication of data.value.publications) {
+    for (const pack of learningAudioPackages(data.value, directory.value, courseId.value)) {
       if (!current()) return;
-      const pack = data.value.packages.find(pack => pack.courseId === publication.courseId && pack.revision === publication.revision)!;
       await audioFor(pack).refreshCourse().catch(() => {});
     }
   }
-  async function stopAudio() { await Promise.all([baseSpeech.stop(), ...[...pool.values()].map(item => item.speech.stop())]); }
+  async function stopAudio() {
+    playbackEpoch++; playing.value = false;
+    const stopRecord = recordPlayback; recordPlayback = false;
+    await Promise.all([baseSpeech.stop(), ...[...pool.values()].map(item => item.speech.stop()), ...(isAndroid && stopRecord ? [native.stopAudio()] : [])]);
+  }
+  async function stopPlayback() {
+    try { await stopAudio(); }
+    catch (failure) { if (current()) error.value = failure instanceof Error ? failure.message : String(failure); }
+  }
   let savingInput: Promise<void> | undefined;
   async function flushInput() {
     while (current()) {
@@ -130,29 +159,31 @@ export function useExperience() {
     return savingInput ??= flushInput().finally(() => { savingInput = undefined; });
   }
   async function persistDraft() {
-    while (current() && (savedMaterial !== JSON.stringify(material.value) || review.value && savedReview !== JSON.stringify(review.value))) {
+    while (current() && (savedMaterial !== JSON.stringify(material.value) || reviewDirty.value)) {
       if (savedMaterial !== JSON.stringify(material.value)) {
         const captured = copy(material.value);
         if (!managedId.value) managedId.value = await catalog.createMaterial(captured);
         else await catalog.updateMaterial(managedId.value, captured);
         savedMaterial = JSON.stringify(captured); await refreshDirectory();
       }
-      if (review.value && savedReview !== JSON.stringify(review.value)) {
+      if (review.value && reviewDirty.value) {
         const captured = copy(review.value);
-        await services.saveReview(captured, current); savedReview = JSON.stringify(captured);
+        await services.saveReview(captured, current); savedReview.value = JSON.stringify(captured);
       }
     }
   }
   async function prepareLeave() {
     if (busy.value || generating.value || processingAudio.value) throw Error("请先完成或暂停当前生成任务。");
     if (!ready.value) { await stopAudio(); return; }
+    if (recording.value) await finishRecording();
     await persistInput(); await persistDraft(); await stopAudio();
   }
   async function run(action: () => Promise<void>) {
     if (busy.value || mode.busy.value || !current()) return false;
     if (generating.value || processingAudio.value) { error.value = "请先完成或暂停当前生成任务。"; return false; }
+    const recovering = !!error.value;
     busy.value = true; error.value = ""; message.value = "";
-    try { await action(); return current(); }
+    try { await action(); if (current() && recovering && !message.value) message.value = "已恢复，可以继续练习。"; return current(); }
     catch (failure) { if (current()) error.value = failure instanceof Error ? failure.message : String(failure); return false; }
     finally { if (!disposed) busy.value = false; }
   }
@@ -162,7 +193,7 @@ export function useExperience() {
       await persistInput(); await persistDraft(); await stopAudio();
       if (next === "source") {
         const active = data.value.sessions.find(item => item.status === "active" && item.learnerId === learner.value?.id && item.courseId === courseId.value);
-        if (active) await store.dispatch({ type: "assist", sessionId: active.id, index: active.index, kind: "source" });
+        if (active && pkg.value) await store.dispatch({ type: "assist", sessionId: active.id, index: active.index, kind: "source", source: { courseId: pkg.value.courseId, revision: pkg.value.revision } });
       }
       if (next === "settings") settingsOrigin.value = view.value;
       originalOpen.value = false; view.value = next;
@@ -178,10 +209,10 @@ export function useExperience() {
       await persistInput(); await persistDraft(); await stopAudio(); await catalog.assignCourse(learner.value.id, id);
       sessionId.value = null; await refreshDirectory(); view.value = "home"; });
   }
-  async function start(replayLevelId?: string) {
+  async function start(replayLevelId?: string, replayLesson?: PassageLesson) {
     await run(async () => {
       await persistInput(); await persistDraft(); await refreshDirectory(); await checkAudio();
-      await store.dispatch({ type: "start", sessionId: identity("session"), seed: crypto.getRandomValues(new Uint32Array(1))[0]!, replayLevelId });
+      await store.dispatch({ type: "start", sessionId: identity("session"), seed: crypto.getRandomValues(new Uint32Array(1))[0]!, replayLevelId, replayLesson });
       if (!current()) return;
       sessionId.value = data.value.sessions.find(item => item.status === "active" && item.learnerId === learner.value?.id && item.courseId === courseId.value)!.id;
       response.value = copy(session.value!.input); view.value = "practice";
@@ -189,6 +220,7 @@ export function useExperience() {
   }
   async function submit() {
     await run(async () => {
+      if (recording.value) throw Error("请先结束录音。");
       // Drain autosaves before submission so a keyboard/blur event cannot queue
       // a stale input transaction behind the submitted answer.
       await persistInput();
@@ -205,8 +237,12 @@ export function useExperience() {
     if (session.value?.status === "completed") message.value = "这一轮完成了！路径进度已保存。稳定表现需要隔天独立练习。";
   }); }
   function inputChanged() {
+    const recovering = !!error.value;
     error.value = "";
-    void persistInput().catch(failure => { if (current()) error.value = String(failure instanceof Error ? failure.message : failure); });
+    if (recovering) message.value = "";
+    void persistInput().then(() => {
+      if (current() && recovering && !error.value) message.value = "作答已保存，可以继续。";
+    }).catch(failure => { if (current()) error.value = String(failure instanceof Error ? failure.message : failure); });
   }
   async function reveal(kind: "source" | "hint") { await run(async () => {
     const run = session.value;
@@ -214,9 +250,65 @@ export function useExperience() {
     if (kind === "source") originalOpen.value = true; else hintOpen.value = true;
   }); }
   async function play(text: string, pack: PassagePackage | undefined = questionPackage.value) { await run(async () => {
+    if (recording.value) throw Error("请先结束录音。");
     if (!pack) throw Error("本课尚未开放音频。");
-    if (!(await audioFor(pack).play(text))) throw Error("播放已停止。");
+    if (question.value?.kind === "speak" && question.value.audioText === text && item.value?.courseId === pack.courseId && item.value.revision === pack.revision &&
+      session.value?.status === "active" && !feedback.value)
+      await store.dispatch({ type: "assist", sessionId: session.value.id, index: session.value.index, kind: "sample" });
+    const token = ++playbackEpoch, scope = recordingScope(); playing.value = true;
+    try {
+      const played = await audioFor(pack).play(text);
+      if (!played && token === playbackEpoch) throw Error("播放已停止。");
+      if (played && token === playbackEpoch && current() && scope === recordingScope() && !feedback.value &&
+        question.value?.kind === "listen-choice" && question.value.audioText === text && item.value?.courseId === pack.courseId && item.value.revision === pack.revision) {
+        response.value = { ...response.value, audioPlayed: true }; await persistInput();
+      }
+    }
+    finally { if (token === playbackEpoch) playing.value = false; }
   }); }
+  async function finishRecording() {
+    const scope = recordingScope(), owner = learner.value?.id;
+    try {
+      const result = await native.stopRecording();
+      if (!current() || scope !== recordingScope()) {
+        if (owner && result.path.startsWith(`recordings/${owner}/`) && /^recordings\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\.m4a$/.test(result.path))
+          await native.deleteCourseResources({ images: [], recordings: [result.path] });
+        return;
+      }
+      response.value = { text: "", selectedIds: [], oral: { recordingPath: result.path } };
+      await persistInput();
+    } finally { recording.value = false; }
+  }
+  async function toggleRecording() { await run(async () => {
+    if (!isAndroid) throw Error("录音请在 Android 应用中使用；已完成的文字练习会保留。");
+    if (question.value?.kind !== "speak" || feedback.value || !learner.value) return;
+    if (recording.value) { await finishRecording(); return; }
+    await persistInput(); await stopAudio(); const scope = recordingScope();
+    startingRecording = native.startRecording({ learnerId: learner.value.id });
+    try {
+      await startingRecording; microphoneDenied.value = false;
+      if (!current() || scope !== recordingScope()) { await native.cancelRecording(); return; }
+      recording.value = true;
+    } catch (failure) { microphoneDenied.value = (failure as { code?: string }).code === "MICROPHONE_DENIED"; throw failure; }
+    finally { startingRecording = undefined; }
+  }); }
+  async function hearRecording(path = response.value.oral?.recordingPath) { await run(async () => {
+    if (!path || !isAndroid) throw Error("请在录音所在的 Android 设备回听。");
+    if (recording.value) throw Error("请先结束录音。");
+    if (!path.startsWith(`recordings/${learner.value?.id}/`)) throw Error("录音不属于当前孩子。");
+    await stopAudio(); const token = ++playbackEpoch, scope = recordingScope(); playing.value = true; recordPlayback = true;
+    try {
+      await native.playRecording({ path });
+      if (token === playbackEpoch && current() && scope === recordingScope() && response.value.oral?.recordingPath === path && !feedback.value) {
+        response.value = { ...response.value, oral: { ...response.value.oral, listened: true } }; await persistInput();
+      }
+    } catch (failure) { if (token === playbackEpoch) throw failure; }
+    finally { if (token === playbackEpoch) { playing.value = false; recordPlayback = false; } }
+  }); }
+  function rateSpeaking(selfRating: "ready" | "again") {
+    if (recording.value || busy.value || !response.value.oral?.listened || feedback.value) return;
+    response.value = { ...response.value, oral: { ...response.value.oral, selfRating } }; inputChanged();
+  }
   async function openManager(id: string) { await run(async () => {
     await persistInput(); await persistDraft(); await stopAudio(); bindManager(id); view.value = "parent";
   }); }
@@ -241,8 +333,8 @@ export function useExperience() {
       const candidate: PassageReview = { package: compilePassagePackage({ ...generated, modeInstanceId: existing?.modeInstanceId ?? identity("instance"),
         revision: identity("revision"), model: config.generation.model, generatedAt: new Date().toISOString() }), sourceConfirmed: false, reviewedQuestionIds: [] };
       await services.saveReview(candidate, valid); if (!valid()) return;
-      review.value = candidate; savedReview = JSON.stringify(candidate); reviewIndex.value = 0;
-      reviewLevel.value = "all"; reviewGoal.value = "all"; reviewFilter.value = "pending";
+      review.value = candidate; savedReview.value = JSON.stringify(candidate); reviewIndex.value = 0;
+      reviewLevel.value = "all"; reviewGoal.value = "all"; reviewLesson.value = "all"; reviewFilter.value = "pending";
       message.value = "候选题库已保存。请核对原文、全部题目与答案，再准备音频并启用。";
     } catch (failure) { if (valid()) error.value = failure instanceof Error ? failure.message : String(failure); }
     finally { if (valid()) generating.value = false; }
@@ -268,7 +360,7 @@ export function useExperience() {
     await persistDraft();
     const candidate = reviseQuestion(review.value, question, identity("revision"));
     await services.saveReview(candidate, current);
-    review.value = candidate; savedReview = JSON.stringify(candidate); editingQuestion.value = false;
+    review.value = candidate; savedReview.value = JSON.stringify(candidate); editingQuestion.value = false;
     message.value = "本题修改已保存，需重新审核。其他审核进度保留，请核对新修订的音频。";
   }); }
   async function returnQuestion() { await run(async () => {
@@ -283,7 +375,7 @@ export function useExperience() {
     await persistDraft();
     const candidate = reviseOutline(review.value, outline, identity("revision"));
     await services.saveReview(candidate, current);
-    review.value = candidate; savedReview = JSON.stringify(candidate); editingOutline.value = false;
+    review.value = candidate; savedReview.value = JSON.stringify(candidate); editingOutline.value = false;
     reviewIndex.value = Math.max(0, candidate.package.questions.findIndex(question => !candidate.reviewedQuestionIds.includes(question.id)));
     message.value = "知识块与关卡修改已保存，请重新确认教材安排并审核相关题目。";
   }); }
@@ -306,7 +398,7 @@ export function useExperience() {
     if (level && ![...level.newGoalIds, ...level.reviewGoalIds].includes(reviewGoal.value)) reviewGoal.value = "all";
     filterReview(reviewFilter.value);
   }
-  function materialChanged() { review.value = null; savedReview = "null"; }
+  function materialChanged() { review.value = null; savedReview.value = "null"; }
   async function addLearner(nickname: string) { await run(async () => { await persistInput(); await persistDraft();
     await catalog.addLearner(nickname); sessionId.value = null; await refreshDirectory(); }); }
   async function boot() {
@@ -317,6 +409,7 @@ export function useExperience() {
     });
   }
   async function refreshContext() {
+    clock.value = new Date().toISOString();
     await refreshDirectory(); data.value = await services.state.refresh(); await checkAudio();
     // A settings detour keeps the same learner/course/session. Detach only when
     // the refreshed context no longer owns it (for example after a publication).
@@ -325,13 +418,27 @@ export function useExperience() {
       if (view.value === "practice") view.value = "home";
     }
   }
-  onScopeDispose(() => { disposed = true; jobEpoch++; stopSubscription(); void requests.dispose();
+  const recordingListener = isAndroid ? native.addListener("recordingStopped", event => {
+    if (event.reason !== "user" && recording.value && (!event.learnerId || event.learnerId === learner.value?.id)) {
+      recording.value = false; error.value = "录音已中断，请重新录制。已保存的上一条录音保留。";
+    }
+  }) : undefined;
+  watch(recordingScope, () => {
+    if (recording.value) { recording.value = false; void native.cancelRecording().catch(() => {}); }
+  }, { flush: "sync" });
+  const clockTimer = setInterval(() => { if (current() && workspace.visible.value) clock.value = new Date().toISOString(); }, 60_000);
+  onScopeDispose(() => { disposed = true; jobEpoch++; playbackEpoch++; playing.value = false; stopSubscription(); void requests.dispose();
+    clearInterval(clockTimer);
+    if (recordPlayback) { recordPlayback = false; void native.stopAudio().catch(() => {}); }
+    void recordingListener?.then(listener => listener.remove()).catch(() => {});
+    if (recording.value) { recording.value = false; void native.cancelRecording().catch(() => {}); }
     pool.forEach(item => item.scope.stop()); pool.clear(); });
   void boot();
-  return { mode, ready, busy, generating, error, message, view, settingsOrigin, directory, learner, courseId, course, pkg, publication,
-    data, report, session, question, questionPackage, item, feedback, response, originalOpen, hintOpen, activeRun, audioAvailable,
+  return { mode, ready, busy, generating, playing, error, message, view, settingsOrigin, directory, learner, courseId, course, pkg, publication,
+    data, report, session, question, questionPackage, item, feedback, response, originalOpen, hintOpen, activeRun, audioAvailable, candidateAvailable,
+    summary, reviewDue, recording, microphoneDenied, toggleRecording, hearRecording, rateSpeaking,
     baseSpeech, processingAudio, candidateAudio: computed(() => reactive(candidateAudio.value)), managedId, managed, material, review, reviewIndex, reviewQuestion, publishedManaged,
-    editingQuestion, editingOutline, reviewFilter, reviewLevel, reviewGoal, groupReview, reviewGroupQuestions, reviewQuestions, saveQuestion, saveOutline, returnQuestion, approveAndNext, filterReview,
-    navigate, selectLearner, selectCourse, start, submit, next, inputChanged, reveal, play, openManager, saveMaterial,
+    editingQuestion, editingOutline, reviewDirty, reviewFilter, reviewLevel, reviewGoal, reviewLesson, groupReview, reviewGroupQuestions, reviewQuestions, saveQuestion, saveOutline, returnQuestion, approveAndNext, filterReview,
+    navigate, selectLearner, selectCourse, start, submit, next, inputChanged, reveal, play, stopPlayback, openManager, saveMaterial,
     generate, cancelGeneration, publish, toggleReviewed, materialChanged, saveReviewDraft, addLearner, prepareLeave, refreshContext, run, boot };
 }

@@ -1,6 +1,12 @@
-import type { PassageQuestion, PassageReview, PassageDraft } from "./model";
+import type { PassageQuestion, PassageReview, PassageDraft, PassageSource } from "./model";
 import { validatePackage } from "./authoring";
 import { copy, requireValid } from "./validation";
+
+/** Old source candidates remain stored for history/cleanup, but cannot resume editing. */
+export function latestReviewForSource(reviews: readonly PassageReview[], source: PassageSource): PassageReview | null {
+  const matching = reviews.filter(review => review.package.courseId === source.courseId && JSON.stringify(review.package.source) === JSON.stringify(source));
+  return matching.length ? copy(matching[matching.length - 1]!) : null;
+}
 
 /** Candidate contents are immutable too: each edit creates a separate revision. */
 export function reviseQuestion(review: PassageReview, question: PassageQuestion, revision: string): PassageReview {

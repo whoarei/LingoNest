@@ -117,7 +117,7 @@ test("short rounds finish clearly and Enter drains pending input saves without d
       await page.evaluate(() => { (window as any).__documentSaveDelay = 0; }); usedEnter = true;
     } else {
       if (question.kind === "order") for (const id of question.correctTokenIds) await page.locator(".passage-tokens").getByRole("button", { name: question.tokens.find(token => token.id === id)!.text, exact: true }).click();
-      else await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
+      else if ("options" in question) await page.locator(".passage-choices").getByRole("button", { name: question.options.find(option => option.id === question.correctOptionId)!.text, exact: true }).click();
       await page.getByRole("button", { name: "检查答案", exact: true }).click();
     }
     await expect(page.locator(".passage-feedback")).toContainText("答对了");

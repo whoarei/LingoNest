@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compilePassagePackage, defaultPassageRules, makePassageAudioManifest, passageQuestionAudioId, passageTurnAudioId, parseGeneratedDraft, validateDraft, validatePackage } from "../packages/learning-modes/passage-path/authoring";
 import { generatePassageCandidate, buildPassageGenerationPrompt } from "../packages/learning-modes/passage-path/prompts";
 import { gradeQuestion } from "../packages/learning-modes/passage-path/grading";
-import { fixtureDraft, fixturePackage, fixtureSource } from "./fixtures/passage-path";
+import { fixtureCurriculumDraft, fixtureDraft, fixturePackage, fixtureSource } from "./fixtures/passage-path";
 
 describe("passage-path authoring", () => {
   it("extracts dialogue sources without the seven-step length blocks and compiles deterministically", () => {
@@ -20,7 +20,7 @@ describe("passage-path authoring", () => {
   it("runs the generation port against a captured source and validates the entire candidate pool", async () => {
     const source = fixtureSource();
     const originalSource = structuredClone(source);
-    const draft = fixtureDraft();
+    const draft = fixtureCurriculumDraft();
     const pending = generatePassageCandidate(source, async prompt => {
       expect(prompt).toBe(buildPassageGenerationPrompt(source));
       source.turns = []; // A late model response must still use its original material.

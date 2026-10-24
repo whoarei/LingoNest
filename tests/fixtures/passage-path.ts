@@ -1,5 +1,5 @@
 import { starterRecord } from "../../packages/learning-modes/seven-step/authoring";
-import { compilePassagePackage, createPassageSource, makePassageAudioManifest } from "../../packages/learning-modes/passage-path/authoring";
+import { basicPassageRules, compilePassagePackage, createPassageSource, defaultPassageRules, makePassageAudioManifest } from "../../packages/learning-modes/passage-path/authoring";
 import type { PassageDraft, PassagePackage, PassageQuestion, PassageResponse, PassageState, RuntimeContext } from "../../packages/learning-modes/passage-path/model";
 import { questionFor } from "../../packages/learning-modes/passage-path/references";
 import { publishPassagePackage, transitionPassage } from "../../packages/learning-modes/passage-path/runtime";
@@ -39,7 +39,25 @@ export function fixtureDraft(): PassageDraft {
   };
 }
 export function fixturePackage(courseId = "starter.unit1.lesson1", revision = "package-1", draft = fixtureDraft()): PassagePackage {
-  return compilePassagePackage({ source: fixtureSource(courseId), draft, modeInstanceId: "instance-1", revision, model: "reviewed-test-fixture", generatedAt: "2026-10-16T10:00:00.000Z" });
+  return compilePassagePackage({ source: fixtureSource(courseId), draft, rules: basicPassageRules, modeInstanceId: "instance-1", revision, model: "reviewed-test-fixture", generatedAt: "2026-10-16T10:00:00.000Z" });
+}
+export function fixtureCurriculumDraft(): PassageDraft {
+  const draft = fixtureDraft();
+  draft.questions = draft.questions.map(question => {
+    const index = Number(question.id.split("-").pop()), chunk = draft.chunks.find(chunk => chunk.id === draft.goals.find(goal => goal.id === question.goalId)!.chunkId)!;
+    const context = { kind: "transfer" as const, text: question.goalId === "goal-like" ? "课外活动时，和新同学聊聊你喜欢的运动。" : "在乒乓球场上，请新队友加入你们。" };
+    const base = { id: question.id, goalId: question.goalId, sourceTurnIds: question.sourceTurnIds, explanation: question.explanation };
+    if (index === 7 || index === 11) return { ...base, kind: "speak", demand: "supported", prompt: index === 7 ? "请先独立说出这句表达，再回听自己的录音。" : "请对新同伴说一句合适的回应，再回听自己的录音。", sampleAnswer: chunk.expression,
+      audioText: chunk.expression, criteria: ["表达了这次交流的意思", "声音清楚，句子说完整"], ...(index === 11 ? { context } : {}) };
+    if (index === 3 && "options" in question) return { ...question, kind: "listen-choice", prompt: "听同伴的表达，选出他想说的意思。", audioText: chunk.expression };
+    if ([5, 8, 9, 10].includes(index)) return { ...question, context };
+    return question;
+  });
+  return draft;
+}
+export function fixtureCurriculumPackage(courseId = "starter.unit1.lesson1", revision = "curriculum-1") {
+  return compilePassagePackage({ source: fixtureSource(courseId), draft: fixtureCurriculumDraft(), rules: defaultPassageRules, modeInstanceId: "instance-1", revision,
+    model: "reviewed-curriculum-fixture", generatedAt: "2026-10-16T10:00:00.000Z" });
 }
 export function approve(state = emptyPassageState(), pkg = fixturePackage()) {
   return publishPassagePackage(state, pkg, { reviewedAt: "2026-10-16T10:01:00.000Z", audioAssetIds: makePassageAudioManifest(pkg).assets.map(asset => asset.id) });
@@ -50,9 +68,10 @@ export function context(courseId = "starter.unit1.lesson1", learnerId = "child-a
 export function responseFor(state: PassageState, sessionId: string, correct = true): PassageResponse {
   const session = state.sessions.find(session => session.id === sessionId)!;
   const question = questionFor(state, session.queue[session.index]!);
+  if (question.kind === "speak") return { text: "", selectedIds: [], oral: { recordingPath: `recordings/${session.learnerId}/${session.id.slice(0, 50).replace(/[^A-Za-z0-9_-]/g, "_")}-${session.index}.m4a`, listened: true, selfRating: correct ? "ready" : "again" } };
   if (question.kind === "cloze") return { text: correct ? question.answers[0]! : "wrong answer", selectedIds: [] };
   if (question.kind === "order") return { text: "", selectedIds: correct ? question.correctTokenIds : [] };
-  return { text: "", selectedIds: [correct ? question.correctOptionId : question.options.find(item => item.id !== question.correctOptionId)!.id] };
+  return { text: "", selectedIds: [correct ? question.correctOptionId : question.options.find(item => item.id !== question.correctOptionId)!.id], ...(question.kind === "listen-choice" ? { audioPlayed: true as const } : {}) };
 }
 export function finishSession(state: PassageState, ctx: RuntimeContext, sessionId: string, correct = true): PassageState {
   let result = state;

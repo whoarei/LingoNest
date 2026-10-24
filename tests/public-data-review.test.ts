@@ -7,13 +7,38 @@ import { starterRecord } from "../packages/learning-modes/seven-step/authoring";
 import { readOverview as readSevenOverview } from "../src/modes/seven-step/overview";
 import { readOverview as readPassageOverview } from "../src/modes/passage-path/overview";
 import { envelope, sampleSeven, sevenKey } from "./fixtures/application-state";
-import { beginShared, materialInput, setupCatalog } from "./fixtures/shared-catalog";
+import { beginShared, materialInput, materialPackage, setupCatalog } from "./fixtures/shared-catalog";
 import { responseFor } from "./fixtures/passage-path";
 
 let env: ReturnType<typeof setupCatalog>;
 beforeEach(() => { env = setupCatalog(); });
 
 describe("public-data separation review", () => {
+  it("does not advertise stale passage candidates as pending review and still exposes their historical resources", async () => {
+    const courseId = await env.services.catalog.createMaterial(materialInput());
+    const pkg = await materialPackage(env.services, courseId);
+    await env.services.passage.saveReview({ package: pkg, sourceConfirmed: false, reviewedQuestionIds: [] });
+    const read = () => readPassageOverview("legacy-a", env.services.catalog.snapshot().courses);
+    expect((await read()).courses.find(item => item.courseId === courseId)).toMatchObject({ status: "review", pending: true });
+    await env.services.catalog.updateMaterial(courseId, { ...materialInput(), title: "已修订的教材" });
+    const stale = await read(); expect(stale.courses.find(item => item.courseId === courseId)).toBeUndefined();
+    expect(stale.resources!.filter(item => item.manifest.courseId === courseId).map(item => item.label)).toEqual(["课文闯关 · 过期候选题库"]);
+    const fresh = await materialPackage(env.services, courseId, "package-2");
+    await env.services.passage.saveReview({ package: fresh, sourceConfirmed: false, reviewedQuestionIds: [] });
+    expect((await read()).courses.find(item => item.courseId === courseId)).toMatchObject({ status: "review", pending: true });
+    expect(env.services.passage.state.snapshot().candidates!.map(item => item.package)).toEqual([pkg, fresh]);
+  });
+
+  it("does not let an older candidate keep a course pending after its latest candidate is published", async () => {
+    const courseId = await env.services.catalog.createMaterial(materialInput());
+    const old = await materialPackage(env.services, courseId, "older"), latest = await materialPackage(env.services, courseId, "latest");
+    for (const pkg of [old, latest]) await env.services.passage.saveReview({ package: pkg, sourceConfirmed: true, reviewedQuestionIds: pkg.questions.map(question => question.id) });
+    await env.services.passage.publishCandidate(courseId, latest.revision, async () => true);
+    const overview = await readPassageOverview("legacy-a", env.services.catalog.snapshot().courses);
+    expect(overview.courses.find(item => item.courseId === courseId)).toMatchObject({ status: "ready", pending: false });
+    expect(overview.resources!.filter(item => item.manifest.courseId === courseId).map(item => item.label)).toEqual(["课文闯关 · 已发布", "课文闯关 · 历史候选题库"]);
+  });
+
   it("refreshes seven-step state through its own workspace port without relying on a catalog overview read", async () => {
     const scope = effectScope(), app = scope.run(() => useLearning({ services: env.services.sevenStep }))!;
     try {

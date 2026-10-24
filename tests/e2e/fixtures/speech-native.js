@@ -169,9 +169,18 @@ export const native = {
     if (token !== playbackEpoch) throw Error("录音播放已停止。");
     if (window.__recordingUnavailable) throw Error("录音不存在或已删除。");
   },
-  cancelRecording: async () => {},
-  startRecording: async ({ learnerId }) => { window.__recordingOwner = learnerId; },
-  stopRecording: async () => ({ path: `recordings/${window.__recordingOwner}/test.m4a` }),
+  cancelRecording: async () => { window.__recordingOwner = null; },
+  startRecording: async ({ learnerId }) => {
+    if (window.__microphoneDenied) throw Object.assign(Error("未允许麦克风"), { code: "MICROPHONE_DENIED" });
+    if (window.__recordingStartDelay) await new Promise(resolve => setTimeout(resolve, window.__recordingStartDelay));
+    window.__recordingOwner = learnerId;
+  },
+  stopRecording: async () => {
+    if (window.__recordingInvalid) throw Object.assign(Error("录音太短，请重新录制。"), { code: "RECORDING_TOO_SHORT" });
+    state.recordingCounter = (state.recordingCounter || 0) + 1; persist();
+    const path = `recordings/${window.__recordingOwner}/take-${state.recordingCounter}.m4a`; window.__recordingOwner = null;
+    return { path };
+  },
   openAppSettings: async () => { window.__openedAppSettings = true; },
   speak: async ({ text }) => {
     const id = key() + text,
@@ -276,7 +285,7 @@ export const native = {
     state.plays++;
     persist();
     emit("speechStatus", { phase: "playing", source: "course" });
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, window.__coursePlaybackDelay || 100));
     emit("speechStatus", { phase: "idle" });
     return { source: "course" };
   },

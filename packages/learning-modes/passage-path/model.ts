@@ -29,12 +29,14 @@ interface QuestionBase {
   explanation: string;
   sourceTurnIds: string[];
   audioText: string | null;
+  context?: { kind: "transfer"; text: string };
 }
 export type PassageQuestion = QuestionBase & (
   | { kind: "choice" | "listen-choice" | "dialogue-choice"; demand: "recognize";
       options: { id: string; text: string }[]; correctOptionId: string }
   | { kind: "order"; demand: "supported"; tokens: { id: string; text: string }[]; correctTokenIds: string[] }
   | { kind: "cloze"; demand: "recall"; answers: string[] }
+  | { kind: "speak"; demand: "supported"; sampleAnswer: string; criteria: string[] }
 );
 export interface PassageLevel {
   id: string;
@@ -49,7 +51,7 @@ export interface PassageDraft {
   questions: PassageQuestion[];
 }
 export interface PassageRules {
-  version: "1" | "2";
+  version: "1" | "2" | "3";
   questionCount: number;
   minQuestionCount: number;
   maxNewChunks: number;
@@ -67,7 +69,7 @@ export interface PassagePackage extends PassageDraft {
   modeInstanceId: string;
   revision: string;
   source: PassageSource;
-  provenance: { model: string; promptVersion: "1"; compilerVersion: "1"; generatedAt: string };
+  provenance: { model: string; promptVersion: "1" | "2"; compilerVersion: "1" | "2"; generatedAt: string };
   rules: PassageRules;
 }
 export interface Publication {
@@ -91,7 +93,13 @@ export interface SessionItem {
   reason: SelectionReason;
   displayIds: string[];
 }
-export interface PassageResponse { text: string; selectedIds: string[] }
+export interface PassageResponse {
+  text: string;
+  selectedIds: string[];
+  audioPlayed?: true;
+  oral?: { recordingPath: string; listened?: true; selfRating?: "ready" | "again" };
+}
+export type PassageLesson = "discover" | "transfer" | "communicate";
 export interface PassageSession {
   id: string;
   learnerId: string;
@@ -101,16 +109,19 @@ export interface PassageSession {
   kind: "path" | "replay" | "practice";
   status: "active" | "completed" | "retired";
   seed: number;
-  schedulerVersion: "1" | "2";
+  schedulerVersion: "1" | "2" | "3" | "4" | "5";
+  lesson?: PassageLesson;
   startedAt: string;
   baseline: boolean;
   queue: SessionItem[];
   baseCount: number;
   index: number;
   input: PassageResponse;
+  /** Includes superseded takes so course deletion can clean all owned media. */
+  recordingPaths?: string[];
   assistedGoals: { courseId: string; revision: string; goalId: string }[];
-  /** Absent in legacy sessions: do not infer zero explicit requests from old facts. */
-  helpRequests?: { courseId: string; revision: string; questionId: string; kind: "source" | "hint"; afterAnswer?: boolean }[];
+  /** Absent in legacy sessions; null questionId means whole-course reading outside a question. */
+  helpRequests?: { courseId: string; revision: string; questionId: string | null; kind: "source" | "hint" | "sample"; afterAnswer?: boolean }[];
   feedbackAttemptId: string | null;
   /** Durable removal keeps other courses' facts and completed path positions. */
   purgedCourseIds?: string[];
@@ -124,7 +135,8 @@ export interface PassageAttempt {
   learnerId: string;
   item: SessionItem;
   response: PassageResponse;
-  correct: boolean;
+  /** Oral practice is recorded without an automatic correctness judgement. */
+  correct: boolean | null;
   assisted: boolean;
   clockTrusted: boolean;
   evidenceEligible: boolean;

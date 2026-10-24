@@ -1,4 +1,4 @@
-import { fixtureDraft } from '/tests/fixtures/passage-path.ts';
+import { fixtureCurriculumDraft } from '/tests/fixtures/passage-path.ts';
 const defaults = () => ({
   recognition: {
     baseUrl: "https://content.example.com/v1",
@@ -64,7 +64,7 @@ export const contentNative = {
     if (window.__contentFailure)
       throw Error("内容服务暂不可用，已保存的草稿保留。");
     if (window.__contentMalformed) return { text: '{"unexpected":true}' };
-    if (prompt === "passage-path") return { text: JSON.stringify(fixtureDraft()) };
+    if (prompt === "passage-path") return { text: JSON.stringify(fixtureCurriculumDraft()) };
     if (prompt === "recognition-text" && window.__ocrLiteralLineBreaks)
       return { text: '{"text":"I love my family.\nMy mother is a teacher."}' };
     if (prompt === "recognition-text")

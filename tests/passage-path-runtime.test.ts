@@ -13,7 +13,7 @@ describe("passage-path sessions", () => {
   it("sizes a new short round by goal coverage, preserving recognition, assembly and recall", () => {
     const one = started();
     const kinds = one.sessions[0]!.queue.map(item => questionFor(one, item).demand);
-    expect(one.sessions[0]).toMatchObject({ schedulerVersion: "2", baseCount: 4 });
+    expect(one.sessions[0]).toMatchObject({ schedulerVersion: "5", baseCount: 4 });
     expect(new Set(kinds)).toEqual(new Set(["recognize", "supported", "recall"]));
     expect(new Set(one.sessions[0]!.queue.map(item => questionFor(one, item).kind)).size).toBe(4);
     const draft = fixtureDraft(); draft.levels = [{ ...draft.levels[0]!, newGoalIds: draft.goals.map(goal => goal.id), reviewGoalIds: [] }];

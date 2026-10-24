@@ -1,4 +1,5 @@
-import type { PassagePackage, PassageQuestion, PassageState, RuntimeContext, SessionItem, SelectionReason } from "./model";
+import type { PassageLesson, PassagePackage, PassageQuestion, PassageState, RuntimeContext, SessionItem, SelectionReason } from "./model";
+import { lessonQuestion } from "./curriculum";
 import { projectGoalProgress } from "./progress";
 import { makePassageAudioManifest } from "./authoring";
 import { questionFingerprint } from "./grading";
@@ -23,7 +24,7 @@ export function shuffled<T>(items: readonly T[], random: () => number): T[] {
   return result;
 }
 export function sessionItem(pkg: PassagePackage, question: PassageQuestion, reason: SelectionReason, random: () => number): SessionItem {
-  const ids = question.kind === "cloze" ? [] : (question.kind === "order" ? question.tokens : question.options).map(item => item.id);
+  const ids = question.kind === "cloze" || question.kind === "speak" ? [] : (question.kind === "order" ? question.tokens : question.options).map(item => item.id);
   let displayIds = shuffled(ids, random);
   if (question.kind === "order" && JSON.stringify(displayIds) === JSON.stringify(question.correctTokenIds))
     displayIds = [...displayIds.slice(1), displayIds[0]!];
@@ -37,38 +38,67 @@ export function selectionTime(state: PassageState, context: RuntimeContext) {
 }
 
 /** Reserves required coverage first. A ratio never displaces a new goal's introduction. */
-export function scheduleQuestions(state: PassageState, context: RuntimeContext, pkg: PassagePackage, levelId: string | null, seed: number): SessionItem[] {
+export function scheduleQuestions(state: PassageState, context: RuntimeContext, pkg: PassagePackage, levelId: string | null, seed: number, lesson?: PassageLesson): SessionItem[] {
   const random = randomFromSeed(seed);
   const level = levelId === null ? null : pkg.levels.find(item => item.id === levelId);
   requireValid(levelId === null || level, "关卡不存在。");
   const ownProgress = projectGoalProgress(state, context.learnerId, pkg);
-  const newGoals = level?.newGoalIds ?? [];
+  const progress = new Map([[JSON.stringify([pkg.courseId, pkg.revision]), ownProgress]]);
+  const progressFor = (origin: PassagePackage) => {
+    const key = JSON.stringify([origin.courseId, origin.revision]);
+    if (!progress.has(key)) progress.set(key, projectGoalProgress(state, context.learnerId, origin));
+    return progress.get(key)!;
+  };
+  const seenGoals = new Set(ownProgress.filter(goal => goal.seen).map(goal => goal.goalId));
+  const applying = lesson === "transfer" || lesson === "communicate";
+  const newGoals = !applying ? level?.newGoalIds.filter(goalId => !seenGoals.has(goalId)) ?? [] : [];
+  const reviewGoalIds = [...(level?.reviewGoalIds ?? []), ...(!applying ? level?.newGoalIds.filter(goalId => seenGoals.has(goalId)) ?? [] : [])];
   // Existing packages retain their audited lower/upper budgets. Frozen sessions
   // are never rescheduled; only a newly started round uses this shorter policy.
-  const requiredCoverage = newGoals.reduce((sum, id) => sum + (pkg.goals.find(goal => goal.id === id)!.requiresRecall ? 2 : 1), level?.reviewGoalIds.length ?? 0);
-  const targetCount = Math.min(pkg.rules.questionCount, Math.max(pkg.rules.minQuestionCount, requiredCoverage, newGoals.length * 3 + (level?.reviewGoalIds.length ?? 0)));
-  const currentGoals = level ? [...level.newGoalIds, ...level.reviewGoalIds] : ownProgress.filter(goal => goal.seen).map(goal => goal.goalId);
-  const bank = shuffled(pkg.questions.filter(question => currentGoals.includes(question.goalId)), random);
+  const requiredCoverage = applying ? level!.newGoalIds.length * (lesson === "communicate" ? 2 : 1) + reviewGoalIds.length :
+    newGoals.reduce((sum, id) => sum + (pkg.goals.find(goal => goal.id === id)!.requiresRecall ? 2 : 1), reviewGoalIds.length);
+  const targetCount = Math.min(pkg.rules.questionCount, Math.max(pkg.rules.minQuestionCount, requiredCoverage, newGoals.length * 3 + reviewGoalIds.length));
+  const currentGoals = level ? [...level.newGoalIds, ...level.reviewGoalIds] : [...seenGoals];
+  const independent = (origin: PassagePackage, question: PassageQuestion) =>
+    origin.goals.find(goal => goal.id === question.goalId)!.requiresRecall ? question.demand === "recall" : question.demand !== "supported";
+  const key = (item: { courseId: string; revision: string; questionId: string }) => JSON.stringify([item.courseId, item.revision, item.questionId]);
+  const lastPracticed = new Map<string, number>();
+  state.attempts.forEach((attempt, index) => { if (attempt.learnerId === context.learnerId) lastPracticed.set(key(attempt.item), index); });
+  // Preserve the required demand first, then rotate audited variants by this
+  // child's practice history. Clock rollback cannot change this ordering.
+  const preferQuestion = (origin: PassagePackage, a: PassageQuestion, b: PassageQuestion) =>
+    Number(independent(origin, b)) - Number(independent(origin, a)) ||
+    (lastPracticed.get(key({ courseId: origin.courseId, revision: origin.revision, questionId: a.id })) ?? -1) -
+    (lastPracticed.get(key({ courseId: origin.courseId, revision: origin.revision, questionId: b.id })) ?? -1);
+  const bank = shuffled(pkg.questions.filter(question => currentGoals.includes(question.goalId) && (!lesson || lessonQuestion(question, lesson))), random)
+    .sort((a, b) => preferQuestion(pkg, a, b));
   const selected: SessionItem[] = [];
   const used = new Set<string>();
   const usedContent = new Set<string>();
   const reviewGoals = new Set<string>();
   let crossCourse = 0;
-  const key = (item: { courseId: string; revision: string; questionId: string }) => JSON.stringify([item.courseId, item.revision, item.questionId]);
   const add = (origin: PassagePackage, question: PassageQuestion, reason: SelectionReason) => {
     const item = sessionItem(origin, question, reason, random);
     if (used.has(key(item)) || usedContent.has(questionFingerprint(question)) || selected.length >= targetCount) return false;
     if (origin.courseId !== pkg.courseId && crossCourse >= pkg.rules.maxCrossCourse) return false;
     selected.push(item); used.add(key(item)); usedContent.add(questionFingerprint(question));
+    reviewGoals.add(referenceKey(origin.courseId, origin.revision, question.goalId));
     if (origin.courseId !== pkg.courseId) crossCourse++;
     return true;
   };
+  if (applying) for (const goalId of level!.newGoalIds) {
+    if (lesson === "communicate") {
+      add(pkg, bank.find(question => question.goalId === goalId && question.kind === "listen-choice")!, "current");
+      add(pkg, bank.find(question => question.goalId === goalId && question.kind === "speak")!, "current");
+    } else add(pkg, bank.find(question => question.goalId === goalId && independent(pkg, question)) ?? bank.find(question => question.goalId === goalId)!, "current");
+  }
   for (const goalId of newGoals) {
     add(pkg, bank.find(question => question.goalId === goalId && question.demand === "recognize")!, "current");
     if (pkg.goals.find(goal => goal.id === goalId)!.requiresRecall)
       add(pkg, bank.find(question => question.goalId === goalId && question.demand === "recall")!, "current");
   }
-  for (const goalId of level?.reviewGoalIds ?? []) add(pkg, bank.find(question => question.goalId === goalId)!, "current");
+  for (const goalId of reviewGoalIds) add(pkg, bank.find(question => question.goalId === goalId && independent(pkg, question))
+    ?? bank.find(question => question.goalId === goalId)!, "current");
 
   // Prefer a different way of expressing a new goal before more recognition
   // variants. It keeps a short round varied without dropping recall coverage.
@@ -88,7 +118,7 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
     if (!access?.available) return [];
     const origin = packageFor(state, publication.courseId, publication.revision);
     if (!access.audioReady && makePassageAudioManifest(origin).assets.length) return [];
-    return projectGoalProgress(state, context.learnerId, origin).filter(goal => goal.seen &&
+    return progressFor(origin).filter(goal => goal.seen &&
       !(origin.courseId === pkg.courseId && newGoals.includes(goal.goalId))).map(goal => ({ pkg: origin, progress: goal }));
   });
   const takeReviews = (reason: "due" | "weak", count: number) => {
@@ -100,7 +130,9 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
       if (added >= count) break;
       const goalKey = referenceKey(entry.pkg.courseId, entry.pkg.revision, entry.progress.goalId);
       if (reviewGoals.has(goalKey)) continue;
-      const question = shuffled(entry.pkg.questions.filter(question => question.goalId === entry.progress.goalId), random)
+      const question = shuffled(entry.pkg.questions.filter(question => question.kind !== "speak" && question.goalId === entry.progress.goalId &&
+        (entry.pkg.courseId !== pkg.courseId || !lesson || lessonQuestion(question, lesson))), random)
+        .sort((a, b) => preferQuestion(entry.pkg, a, b))
         .find(question => !used.has(key({ courseId: entry.pkg.courseId, revision: entry.pkg.revision, questionId: question.id })) && !usedContent.has(questionFingerprint(question)));
       if (question && add(entry.pkg, question, reason)) { reviewGoals.add(goalKey); added++; }
     }
@@ -114,14 +146,34 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
   for (const question of varietyBank) add(pkg, question, "current");
   requireValid(selected.length >= pkg.rules.minQuestionCount, "可用题目不足，请家长补充并审核内容。");
 
-  // Only recognition for newly introduced goals is a prerequisite. Supported work follows it.
+  // Introduce new goals through meaning; let seen goals answer independently
+  // before feedback or supported variants expose that goal's answer.
   const ordered: SessionItem[] = [];
   const introduced = new Set<string>();
+  const scaffolded = new Set<string>();
+  const supportedGoals = new Set(selected.filter(item => item.courseId === pkg.courseId && questionForItem(item).demand === "supported").map(item => questionForItem(item).goalId));
+  const tested = new Set<string>();
+  const independentGoals = new Set(selected.filter(item => {
+    const origin = packageFor(state, item.courseId, item.revision), question = questionForItem(item);
+    return independent(origin, question) && progressFor(origin).some(goal => goal.goalId === question.goalId && goal.seen) &&
+      !(item.courseId === pkg.courseId && newGoals.includes(question.goalId));
+  }).map(item => referenceKey(item.courseId, item.revision, questionForItem(item).goalId)));
+  const firstIndependent = new Map<string, string>();
+  for (const item of selected) {
+    const origin = packageFor(state, item.courseId, item.revision), question = questionForItem(item);
+    const goal = referenceKey(item.courseId, item.revision, question.goalId);
+    if (independentGoals.has(goal) && independent(origin, question) && !firstIndependent.has(goal)) firstIndependent.set(goal, question.id);
+  }
+  function questionForItem(item: SessionItem) { return packageFor(state, item.courseId, item.revision).questions.find(question => question.id === item.questionId)!; }
   const remaining = shuffled(selected, random);
   while (remaining.length) {
     const eligible = (item: SessionItem) => {
-      const question = packageFor(state, item.courseId, item.revision).questions.find(question => question.id === item.questionId)!;
-      return item.courseId !== pkg.courseId || !newGoals.includes(question.goalId) || question.demand === "recognize" || introduced.has(question.goalId);
+      const question = questionForItem(item);
+      const goal = referenceKey(item.courseId, item.revision, question.goalId);
+      if (independentGoals.has(goal) && !tested.has(goal) && firstIndependent.get(goal) !== question.id) return false;
+      if (item.courseId !== pkg.courseId || !newGoals.includes(question.goalId)) return true;
+      if (question.demand === "recognize") return true;
+      return introduced.has(question.goalId) && (question.demand !== "recall" || !supportedGoals.has(question.goalId) || scaffolded.has(question.goalId));
     };
     const last = ordered[ordered.length - 1];
     const goalKey = (item: SessionItem) => {
@@ -133,7 +185,12 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
     requireValid(index >= 0, "新目标缺少前置理解题。");
     const item = remaining.splice(index, 1)[0]!;
     ordered.push(item);
-    if (item.courseId === pkg.courseId) introduced.add(pkg.questions.find(question => question.id === item.questionId)!.goalId);
+    tested.add(goalKey(item));
+    if (item.courseId === pkg.courseId) {
+      const question = questionForItem(item);
+      if (question.demand === "recognize") introduced.add(question.goalId);
+      if (question.demand === "supported") scaffolded.add(question.goalId);
+    }
   }
   return ordered;
 }

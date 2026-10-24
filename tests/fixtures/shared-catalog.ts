@@ -2,8 +2,8 @@ import { recordForMaterial } from "../../src/modes/seven-step/services";
 import { vi } from "vitest";
 import { createApplicationServices } from "../../src/application/services";
 import type { OwnedResource } from "../../src/platform/deletions";
-import { compilePassagePackage, makePassageAudioManifest } from "../../packages/learning-modes/passage-path/authoring";
-import { passageSourceFromMaterial } from "../../src/modes/passage-path/services";
+import { basicPassageRules, compilePassagePackage, makePassageAudioManifest } from "../../packages/learning-modes/passage-path/authoring";
+import { passageSourceFromMaterial } from "../../src/modes/passage-path/material";
 import { starterRecord } from "../../packages/learning-modes/seven-step/authoring";
 import type { RuntimeContext } from "../../packages/learning-modes/passage-path/model";
 import { seededDocuments } from "./application-state";
@@ -26,7 +26,7 @@ export const materialInput = () => ({ title: starterRecord.title, subtitle: star
   images: [image, sharedImage], supplementImages: [] });
 export async function materialPackage(services: ReturnType<typeof createApplicationServices>, courseId: string, revision = "package-1") {
   const material = (await services.catalog.read()).courses.find(item => item.id === courseId)!;
-  return compilePassagePackage({ source: passageSourceFromMaterial(material), draft: fixtureDraft(), modeInstanceId: "instance-1", revision,
+  return compilePassagePackage({ source: passageSourceFromMaterial(material), draft: fixtureDraft(), rules: basicPassageRules, modeInstanceId: "instance-1", revision,
     model: "reviewed-test-fixture", generatedAt: "2026-10-17T10:00:00.000Z" });
 }
 export async function beginShared(services: ReturnType<typeof createApplicationServices>) {
