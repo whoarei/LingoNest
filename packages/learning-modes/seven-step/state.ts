@@ -41,6 +41,7 @@ export interface PracticeRun {
   answer: string;
   selectedIds: string[];
   recordingPath: string | null;
+  purpose?: "independent";
 }
 export const emptyState = (): LocalState => ({
   formatVersion: 2,
@@ -261,6 +262,7 @@ export function decodeState(payload: string): LocalState {
       run.selectedIds.some((id) => typeof id !== "string") ||
       typeof run.answer !== "string" ||
       typeof run.label !== "string" ||
+      (run.purpose !== undefined && run.purpose !== "independent") ||
       (run.stageId !== null && !/^S[1-7]$/.test(run.stageId)) ||
       (run.recordingPath !== null && typeof run.recordingPath !== "string")
     )

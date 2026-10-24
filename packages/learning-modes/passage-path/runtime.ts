@@ -8,7 +8,7 @@ import { copy, id, ids, learnerIdentity, requireValid, time } from "./validation
 export type PassageCommand =
   | { type: "start"; sessionId: string; seed: number; replayLevelId?: string }
   | { type: "input"; sessionId: string; index: number; response: PassageResponse }
-  | { type: "assist"; sessionId: string; index: number }
+  | { type: "assist"; sessionId: string; index: number; kind?: "source" | "hint" }
   | { type: "submit"; sessionId: string; index: number; attemptId: string; response: PassageResponse }
   | { type: "next"; sessionId: string; index: number };
 
@@ -80,9 +80,9 @@ export function transitionPassage(state: PassageState, context: RuntimeContext, 
     const next = copy(state);
     next.sessions.push({ id: command.sessionId, learnerId: context.learnerId, courseId: pkg.courseId, revision: pkg.revision,
       levelId: level?.id ?? null, kind: command.replayLevelId ? "replay" : level ? "path" : "practice", status: "active",
-      seed: command.seed, schedulerVersion: "1", startedAt: context.clock.at,
+      seed: command.seed, schedulerVersion: "2", startedAt: context.clock.at,
       baseline: !state.attempts.some(attempt => attempt.learnerId === context.learnerId && attempt.item.courseId === pkg.courseId && attempt.item.revision === pkg.revision),
-      queue, baseCount: queue.length, index: 0, input: { text: "", selectedIds: [] }, assistedGoals: [], feedbackAttemptId: null });
+      queue, baseCount: queue.length, index: 0, input: { text: "", selectedIds: [] }, assistedGoals: [], helpRequests: [], feedbackAttemptId: null });
     observeClock(next, context);
     return next;
   }
@@ -115,6 +115,10 @@ export function transitionPassage(state: PassageState, context: RuntimeContext, 
   } else {
     requireValid(command.type === "assist" || session.feedbackAttemptId === null, "当前题目已提交，请继续下一题。");
     if (command.type === "assist") {
+      requireValid(command.kind === undefined || command.kind === "source" || command.kind === "hint", "辅助类型无效。");
+      const currentItem = session.queue[session.index]!;
+      if (command.kind && session.helpRequests && !session.helpRequests.some(request => request.courseId === currentItem.courseId && request.revision === currentItem.revision && request.questionId === currentItem.questionId && request.kind === command.kind))
+        session.helpRequests.push({ courseId: currentItem.courseId, revision: currentItem.revision, questionId: currentItem.questionId, kind: command.kind, afterAnswer: !!session.feedbackAttemptId });
       // Viewing the original can expose any queued goal, including cross-course review.
       for (const item of session.queue) {
         const goalId = questionFor(next, item).goalId;

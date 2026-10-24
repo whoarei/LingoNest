@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import ModeHost from "./modes/ModeHost.vue";
+import ApplicationFrame from "./application/ApplicationFrame.vue";
 </script>
 
 <template>
-  <ModeHost />
+  <ApplicationFrame />
 </template>

@@ -41,7 +41,28 @@ export interface TeachingModeCore<TState, TAuthoring, TRuntime, TReporting> {
 
 export interface TeachingModeRegistration<TExperience> {
   identity: Readonly<TeachingModeIdentity>;
+  /** A scoped teaching workspace; application navigation is provided by its host. */
   loadExperience(): Promise<TExperience>;
+  readOverview?(learnerId: string | null): Promise<ModeOverview>;
+}
+
+export interface ModeOverview {
+  courses: { courseId: string; status: "missing" | "draft" | "review" | "ready"; pending?: boolean }[];
+  records: ModeRecord[];
+  pendingCount: number;
+  canConfirm?: boolean;
+  resources?: { label: string; manifest: CourseAudioManifest; current?: boolean }[];
+}
+
+/** Read-only facts supplied by a mode; the frame does not interpret its grading. */
+export interface ModeRecord {
+  id: string;
+  courseId: string;
+  at: string;
+  title: string;
+  outcome?: string;
+  summary?: string;
+  details?: { label: string; value: string }[];
 }
 
 /** An explicit default is only for a new installation, never an unknown mode fallback. */
@@ -58,6 +79,7 @@ export function createTeachingModeRegistry<TExperience>(
     entries.set(id, Object.freeze({
       identity: Object.freeze({ id, version, title }),
       loadExperience: registration.loadExperience,
+      readOverview: registration.readOverview,
     }));
   }
   function requireMode(id: string) {
@@ -65,7 +87,7 @@ export function createTeachingModeRegistry<TExperience>(
     if (!mode) throw new Error(`教学模式尚未安装：${id}。已有内容和记录保留。`);
     return mode;
   }
-  requireMode(defaultModeId);
+  if (entries.size) requireMode(defaultModeId);
   return Object.freeze({
     defaultModeId,
     modes: Object.freeze([...entries.values()]),

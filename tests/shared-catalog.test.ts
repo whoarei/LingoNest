@@ -6,6 +6,7 @@ import { makePassageAudioManifest } from "../packages/learning-modes/passage-pat
 import { beginShared, materialInput, materialPackage, setupCatalog } from "./fixtures/shared-catalog";
 import { responseFor } from "./fixtures/passage-path";
 import legacy from "./fixtures/seven-step-legacy.json";
+import { buildCoursePackage } from "../packages/learning-modes/seven-step/authoring";
 
 let env: ReturnType<typeof setupCatalog>;
 beforeEach(() => { env = setupCatalog(); });
@@ -91,6 +92,26 @@ describe("shared catalogue compatibility", () => {
     const updated = await materialPackage(env.services, courseId);
     await store.publish(updated, { reviewedAt: "2026-10-17T10:00:00.000Z", audioAssetIds: makePassageAudioManifest(updated).assets.map(item => item.id) });
     await expect(env.services.catalog.updateMaterial(courseId, materialInput())).rejects.toThrow("已发布");
+    expect((await env.services.catalog.read()).courses.find(item => item.id === courseId)?.sourceEditable).toBe(false);
+  });
+  it("invalidates only unpublished generated content when shared material changes and keeps existing learning history", async () => {
+    const original = decodeState(JSON.stringify(legacy.snapshot)).courses[0]!;
+    const courseId = await env.services.catalog.createMaterial({ title: "可编辑的学习草稿", subtitle: "", sourceText: original.sourceText, images: [], supplementImages: [] });
+    await env.services.data.state.update(state => {
+      const draft = state.courses.find(item => item.id === courseId)!;
+      draft.vocabulary = structuredClone(original.vocabulary);
+      draft.recipe = structuredClone(original.recipe);
+      draft.status = "review";
+      draft.package = buildCoursePackage(draft);
+    });
+    const before = env.services.data.state.snapshot();
+    const material = (await env.services.catalog.read()).courses.find(item => item.id === courseId)!;
+    expect(material.sourceEditable).toBe(true);
+    await env.services.catalog.updateMaterial(courseId, { ...material, sourceText: "I love my family. My father is a teacher." });
+    const after = env.services.data.state.snapshot();
+    expect(after.courses.find(item => item.id === courseId)).toMatchObject({ status: "source", recipe: null, package: null });
+    expect(after.courses[0]).toEqual(before.courses[0]);
+    expect(after.events).toEqual(before.events); expect(after.runs).toEqual(before.runs);
   });
   it("makes runtime identity and availability follow the real shared selection, not a stale caller context", async () => {
     const { store, courseId } = await beginShared(env.services);

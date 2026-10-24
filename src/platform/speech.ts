@@ -6,6 +6,9 @@ import {
   getCurrentScope,
   onScopeDispose,
   type Ref,
+  getCurrentInstance,
+  inject,
+  type InjectionKey,
 } from "vue";
 import { isAndroid, native } from "../native";
 import {
@@ -16,6 +19,7 @@ import {
   type CourseAudioSpec,
   type SpeechConfiguration,
 } from "../speech-types";
+export const speechConfigurationKey: InjectionKey<Ref<SpeechConfiguration>> = Symbol("application-speech-configuration");
 
 // Device playback is shared by all controllers. Keep ownership separate from UI
 // status, and let a new request wait for an earlier owner's stop to finish.
@@ -42,7 +46,7 @@ export function useSpeech(
 ) {
   const course = isRef(source) ? source : ref(source);
   const configuration =
-    sharedConfiguration ?? ref(defaultSpeechConfiguration());
+    sharedConfiguration ?? (getCurrentInstance() ? inject(speechConfigurationKey, undefined) : undefined) ?? ref(defaultSpeechConfiguration());
   const ready = ref(false),
     settingsError = ref("");
   const phase = ref<SpeechStatus["phase"]>("idle");
@@ -71,6 +75,7 @@ export function useSpeech(
     },
   };
   let finishBrowserPlayback: (() => void) | undefined;
+  let playbackStart: { token: number; fire(): void } | undefined;
   const subscriptions: { remove(): Promise<void> }[] = [];
   function retainSubscription(handle: { remove(): Promise<void> }) {
     if (disposed) void handle.remove().catch(() => {});
@@ -136,13 +141,21 @@ export function useSpeech(
     lastSource.value = undefined;
     return ownsPlayback(token);
   }
-  async function playText(text: string, preview: boolean) {
+  async function playText(text: string, preview: boolean, onStarted?: () => Promise<void>) {
     if (disposed) return false;
     const token = ++sequence;
     await load().catch((error) => {
       if (preview) throw error;
     });
     if (disposed || token !== sequence) return false;
+    let started = false;
+    let startWork = Promise.resolve();
+    const signalStarted = () => {
+      if (started || !ownsPlayback(token)) return;
+      started = true;
+      startWork = Promise.resolve().then(() => onStarted?.());
+      void startWork.catch(() => {});
+    };
     try {
       if (isAndroid) {
         const activeCourse = course.value;
@@ -154,12 +167,14 @@ export function useSpeech(
         // Preparing playback yields to Vue updates. Unload or another request
         // can revoke the reservation before this continuation reaches the device.
         if (!(await beginPlayback(token, preview)) || !ownsPlayback(token)) return false;
+        playbackStart = { token, fire: signalStarted };
         const result = preview
           ? await native.speak({ text })
           : await native.playCourseAudio({
               course: activeCourse,
               assetId: asset!.id,
             });
+        signalStarted();
         if (token === sequence) {
           lastCached.value = !!result?.cached;
           lastSource.value = result?.source;
@@ -186,7 +201,8 @@ export function useSpeech(
           utterance.voice = voice;
           utterance.lang = voice.lang;
           utterance.rate = configuration.value.speed;
-          utterance.onend = () => resolve();
+          utterance.onstart = signalStarted;
+          utterance.onend = () => { signalStarted(); resolve(); };
           utterance.onerror = (event) =>
             event.error === "canceled" || event.error === "interrupted"
               ? resolve()
@@ -202,6 +218,8 @@ export function useSpeech(
         throw error;
       return false;
     } finally {
+      if (playbackStart?.token === token) playbackStart = undefined;
+      await startWork;
       if (playbackOwner === owner && activeSequence === token) {
         playbackOwner = undefined;
         phase.value = "idle";
@@ -210,7 +228,7 @@ export function useSpeech(
     }
     return token === sequence;
   }
-  const play = (text: string) => playText(text, false);
+  const play = (text: string, onStarted?: () => Promise<void>) => playText(text, false, onStarted);
   const preview = (text: string) => playText(text, true);
   async function save(input: SpeechInput) {
     if (!isAndroid) throw new Error("API Key 配置请在 Android 应用中保存。");
@@ -318,6 +336,7 @@ export function useSpeech(
     void native
       .addListener("speechStatus", (status) => {
         if (disposed || playbackOwner !== owner) return;
+        if (status.phase === "playing") playbackStart?.fire();
         phase.value = status.phase;
         if (status.source) lastSource.value = status.source;
         if (status.cached !== undefined) lastCached.value = status.cached;

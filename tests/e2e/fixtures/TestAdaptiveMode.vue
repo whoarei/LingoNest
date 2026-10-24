@@ -1,41 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useModeSelection } from "../../../src/platform/mode-selection";
+import { computed, inject, onScopeDispose, ref } from "vue";
+import { useWorkspace } from "../../../src/application/workspace";
+import { catalogKey } from "../../../src/platform/catalog";
 import { SnapshotRepository } from "../../../src/platform/snapshot-repository";
-import { courseModeAccess, type CourseModeStatus } from "../../../packages/learning-modes/availability";
 import CourseModeNotice from "../../../src/components/CourseModeNotice.vue";
-import ParentModeSettings from "../../../src/components/ParentModeSettings.vue";
-const selection = useModeSelection();
-const courses = (window as unknown as { __fixtureCourses: { id: string; title: string }[] }).__fixtureCourses;
-const selected = ref(courses[0]!);
+const workspace = useWorkspace(), catalog = inject(catalogKey)!;
+const ready = ref(false), busy = ref(false);
+const selected = ref({ id: "", title: "" });
 const statuses = ref<Record<string, "review" | "ready">>({});
-const parent = ref(false), preparing = ref(false), ready = ref(false);
-const repository = new SnapshotRepository({
-  storageKey: "lingonest.test-adaptive.v1",
-  empty: () => ({ statuses: {} as Record<string, "review" | "ready"> }),
-  decode: (payload: string) => JSON.parse(payload) as { statuses: Record<string, "review" | "ready"> },
-});
-onMounted(async () => { statuses.value = (await repository.load()).statuses; ready.value = true; });
-const access = computed(() => courseModeAccess(selection.activeModeId.value, statuses.value[selected.value.id]
-  ? [{ modeId: "test-adaptive", status: statuses.value[selected.value.id]! }] : []));
-async function save(status: Exclude<CourseModeStatus, "draft" | "missing">) {
-  const next = { ...statuses.value, [selected.value.id]: status };
-  await repository.save({ statuses: next }); statuses.value = next;
+const repository = new SnapshotRepository({ storageKey: "lingonest.test-adaptive.v1", empty: () => ({ statuses: {} as Record<string, "review" | "ready"> }), decode: payload => JSON.parse(payload) });
+const status = computed<"missing" | "review" | "ready">(() => statuses.value[selected.value.id] ?? "missing");
+async function refresh() {
+  const directory = await catalog.read();
+  const id = workspace.courseId.value ?? directory.learningCourseIds[directory.activeLearnerId ?? ""] ?? directory.defaultCourseId;
+  selected.value = directory.courses.find(course => course.id === id) ?? { id, title: "测试课程" };
 }
+async function save(status: "review" | "ready") {
+  busy.value = true;
+  try { const next = { ...statuses.value, [selected.value.id]: status }; await repository.save({ statuses: next }); statuses.value = next; }
+  finally { busy.value = false; }
+}
+onScopeDispose(workspace.connect({ get ready() { return ready.value; }, get busy() { return busy.value; }, focused: false,
+  async prepareLeave() { if (busy.value) throw Error("正在保存测试模式。"); }, async handleBack() { return false; }, async exit() {}, refresh }));
+void (async () => { statuses.value = (await repository.load()).statuses; await refresh(); ready.value = true; })();
 </script>
 <template>
-  <main v-if="ready" class="test-adaptive-experience">
-    <h1>测试自适应模式</h1>
-    <nav aria-label="测试课程选择">
-      <button v-for="course in courses" :key="course.id" @click="selected = course; preparing = false">{{ course.title }}</button>
-    </nav>
-    <CourseModeNotice v-if="!access.canLearn" :title="selected.title" mode-title="测试自适应模式" :status="access.status" @prepare="parent = true; preparing = true" />
+  <main v-if="ready" class="frame-page test-adaptive-experience">
+    <h1>测试自适应模式</h1><p>{{ selected.title }}</p>
+    <template v-if="workspace.surface.value === 'authoring'">
+      <button v-if="status === 'missing'" class="frame-button" @click="save('review')">模拟生成内容</button>
+      <button v-if="status === 'review'" class="frame-button" @click="save('ready')">审核并开放测试内容</button>
+      <p v-if="status === 'ready'">本课已审核，可以开始测试学习。</p>
+    </template>
+    <CourseModeNotice v-else-if="status !== 'ready'" :title="selected.title" mode-title="测试自适应模式" :status="status" @prepare="workspace.openParent('authoring')" />
     <p v-else role="status">本课已审核，可以开始测试学习。</p>
-    <section v-if="preparing" aria-label="测试模式准备流程">
-      <button v-if="access.status === 'missing'" @click="save('review')">模拟生成内容</button>
-      <button v-if="access.status === 'review'" @click="save('ready')">审核并开放测试内容</button>
-    </section>
-    <button @click="parent = !parent">家长空间</button>
-    <ParentModeSettings v-if="parent" />
   </main>
 </template>

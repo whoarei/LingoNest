@@ -39,7 +39,7 @@ function select(id: typeof tab.value) {
       <div class="course-review-metrics">
         <div><strong>{{ turns.length }}</strong><span>课文段落</span></div>
         <div><strong>{{ words.length }}</strong><span>重点词汇</span></div>
-        <div><strong>{{ recipe.comprehension.length + recipe.applications.length }}</strong><span>练习题目</span></div>
+        <div><strong>{{ recipe.comprehension.length + recipe.applications.length }}</strong><span>生成的理解与应用题</span></div>
       </div>
       <details v-if="words.length" class="course-review-vocabulary">
         <summary>查看重点词汇 <Icon name="chevron" :size="15" /></summary>

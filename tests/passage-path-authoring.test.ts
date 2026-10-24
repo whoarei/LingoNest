@@ -47,7 +47,7 @@ describe("passage-path authoring", () => {
   });
   it("validates coverage budgets and keeps compilation versions explicit", () => {
     const draft = fixtureDraft();
-    const rules = { ...defaultPassageRules, questionCount: 5 };
+    const rules = { ...defaultPassageRules, questionCount: 3 };
     expect(() => compilePassagePackage({ source: fixtureSource(), draft, modeInstanceId: "instance-1", revision: "p1", model: "test", generatedAt: "2026-10-17T10:00:00.000Z", rules })).toThrow("预算");
     expect(() => validatePackage({ ...fixturePackage(), runtimeVersion: "99" })).toThrow("不支持");
     const old = makePassageAudioManifest(fixturePackage());

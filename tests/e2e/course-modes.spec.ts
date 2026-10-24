@@ -1,22 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
-import type legacyFixture from "../fixtures/seven-step-legacy.json";
-import { newCourse, starterRecord } from "../../packages/learning-modes/seven-step/authoring";
-
-const legacy: typeof legacyFixture = JSON.parse(readFileSync(new URL("../fixtures/seven-step-legacy.json", import.meta.url), "utf8"));
-const settingsKey = "lingonest.mode-settings.v1";
-const raw = JSON.stringify({ revision: 7, payload: JSON.stringify(legacy.snapshot) });
-const courses = [
-  { id: legacy.snapshot.courses[0]!.id, title: legacy.snapshot.courses[0]!.title },
-  { id: starterRecord.id, title: starterRecord.title },
-];
-async function seed(page: Page, activeModeId?: string) {
-  await page.addInitScript(({ oldKey, raw, settingsKey, activeModeId, courses }) => {
-    if (!localStorage.getItem(oldKey)) localStorage.setItem(oldKey, raw);
-    if (activeModeId && !localStorage.getItem(settingsKey)) localStorage.setItem(settingsKey, JSON.stringify({ revision: 1, payload: JSON.stringify({ formatVersion: 1, activeModeId }) }));
-    (window as any).__fixtureCourses = courses;
-  }, { oldKey: legacy.storageKey, raw, settingsKey, activeModeId, courses });
-}
+import { adult, navigate, parentSpace, seedApplication, snapshot, switchMode } from "./fixtures/application";
+const modeKey = "native-document:lingonest.mode-settings.v1";
 async function fixtureRegistry(page: Page) {
   await page.route("**/src/modes/registry.ts", route => route.fulfill({ contentType: "application/javascript", body: `
     import { createTeachingModeRegistry } from '/packages/learning-modes/contracts.ts';
@@ -25,203 +9,88 @@ async function fixtureRegistry(page: Page) {
     export const teachingModes = createTeachingModeRegistry([sevenStepRegistration, testAdaptiveRegistration], 'seven-step');
   ` }));
 }
-async function openModes(page: Page) {
-  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-}
-async function confirm(page: Page) {
-  await page.getByLabel("7加5的答案").fill("12");
-  await page.getByRole("button", { name: "确认并继续", exact: true }).click();
-}
-test("production exposes both independent modes and retains one device-wide setting across profiles and reloads", async ({ page }) => {
-  await seed(page); await page.goto("/");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
-  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
-  await openModes(page);
-  await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button")).toHaveCount(4);
-  await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button", { name: "模式", exact: true })).toHaveCount(0);
-  const radios = page.getByRole("radiogroup", { name: "全局课程模式" }).getByRole("radio");
-  await expect(radios).toHaveCount(2);
-  await expect(radios.first()).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("radio", { name: /课文闯关/ })).toHaveAttribute("aria-checked", "false");
-  for (const width of [320, 1280]) {
-    await page.setViewportSize({ width, height: 844 });
-    const navigation = page.getByRole("navigation", { name: "家长导航" });
-    const buttons = await navigation.getByRole("button").all();
-    for (const button of buttons) {
-      const bounds = await button.boundingBox();
-      expect(bounds!.x).toBeGreaterThanOrEqual(0);
-      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-    }
-    await expect(page.getByRole("radio").first()).toBeInViewport();
-    await page.screenshot({ path: `artifacts/global-course-mode-${width}.png`, fullPage: true });
-  }
-  const settings = await page.evaluate(key => localStorage.getItem(key), settingsKey);
-  await radios.first().click();
-  expect(await page.evaluate(key => localStorage.getItem(key), settingsKey)).toBe(settings);
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
-  await page.locator(".settings-page").getByRole("button", { name: "管理孩子档案", exact: true }).click();
-  await page.locator(".learner-option").filter({ hasText: legacy.snapshot.learners[1]!.nickname }).click();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  expect(await page.evaluate(key => localStorage.getItem(key), settingsKey)).toBe(settings);
-  const state = await page.evaluate(key => JSON.parse(JSON.parse(localStorage.getItem(key)!).payload), legacy.storageKey);
-  expect(state.courses).toEqual(legacy.snapshot.courses);
-  expect(state.events).toEqual(legacy.snapshot.events);
-  expect(state.runs).toEqual(legacy.snapshot.runs);
-  await page.reload(); await openModes(page);
-  await expect(radios.first()).toHaveAttribute("aria-checked", "true");
+
+test("production has two registered modes and keeps one device-wide selection across children and reloads", async ({ page }) => {
+  await seedApplication(page); await page.goto("/"); const before = await snapshot(page);
+  await parentSpace(page); await navigate(page, "设置");
+  await expect(page.getByRole("radio")).toHaveCount(2);
+  await expect(page.getByRole("radio", { name: /七步/ })).toHaveAttribute("aria-checked", "true");
+  await switchMode(page, "课文闯关");
+  await page.getByRole("button", { name: "管理孩子档案", exact: true }).click();
+  await page.locator(".frame-list-row").filter({ hasText: "旧档案乙" }).getByRole("button", { name: "切换档案" }).click();
+  await navigate(page, "设置");
+  await expect(page.getByRole("radio", { name: /课文闯关/ })).toHaveAttribute("aria-checked", "true");
+  const after = await snapshot(page); expect(after.courses).toEqual(before.courses); expect(after.events).toEqual(before.events); expect(after.runs).toEqual(before.runs);
+  await page.reload(); await parentSpace(page); await navigate(page, "设置");
+  await expect(page.getByRole("radio", { name: /课文闯关/ })).toHaveAttribute("aria-checked", "true");
 });
 
-test("a material-only selection survives reload and blocks seven-step without showing another course", async ({ page }) => {
-  const record = newCourse(); record.title = "闯关专属材料"; record.sourceText = "Hello, my friend.";
-  const snapshot = { ...legacy.snapshot, courses: [...legacy.snapshot.courses, record],
-    learningCourseIds: { ...legacy.snapshot.learningCourseIds, "legacy-a": record.id } };
-  const stored = JSON.stringify({ revision: 8, payload: JSON.stringify(snapshot) });
-  await page.addInitScript(({ key, stored }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, stored); }, { key: legacy.storageKey, stored });
-  await page.goto("/");
-  await expect(page.locator(".course-mode-notice")).toContainText("闯关专属材料");
-  await expect(page.getByRole("button", { name: /开始.*练习|继续.*练习/ })).toHaveCount(0);
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(stored);
-  await page.reload();
-  await expect(page.locator(".course-mode-notice")).toContainText("闯关专属材料");
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(stored);
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" }).getByRole("radio")).toHaveCount(2);
+test("material-only course selection survives reload and never falls back to another course", async ({ page }) => {
+  await seedApplication(page); await page.goto("/"); await parentSpace(page); await navigate(page, "课程");
+  await page.getByRole("button", { name: "新建课程", exact: true }).click();
+  await page.getByLabel("课程标题", { exact: true }).fill("未准备的教材");
+  await page.getByLabel("文章或课文原文", { exact: true }).fill("Hello, my friend.");
+  await page.getByRole("button", { name: "保存教材", exact: true }).click();
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click(); await navigate(page, "课程");
+  await page.locator(".frame-course-entry").filter({ hasText: "未准备的教材" }).click();
+  await expect(page.locator(".course-mode-notice")).toContainText("未准备的教材");
+  await page.reload(); await expect(page.locator(".course-mode-notice")).toContainText("未准备的教材");
+  await expect(page.locator(".stage-row")).toHaveCount(0);
 });
-test("unknown saved mode requires parent confirmation and never silently loads seven-step", async ({ page }) => {
-  await seed(page, "removed-mode"); await page.goto("/");
-  await expect(page.getByRole("alert")).toContainText("尚未安装");
+
+test("unknown saved mode keeps the application usable and requires parent access to recover", async ({ page }) => {
+  await seedApplication(page, { mode: "not-installed" }); await page.goto("/");
+  await expect(page.getByRole("heading", { name: "学习模式暂时无法加载", exact: true })).toBeVisible();
   await expect(page.locator(".seven-step-mode")).toHaveCount(0);
+  await navigate(page, "课程"); await expect(page.locator(".frame-course-entry")).toHaveCount(2);
+  await parentSpace(page); await navigate(page, "设置");
   await page.getByRole("radio", { name: /七步/ }).click();
-  await expect(page.locator(".seven-step-mode")).toHaveCount(0);
-  await confirm(page);
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
-});
-test("switches globally, blocks every unprepared course, requires generation and review, and restores seven-step progress", async ({ page }) => {
-  await fixtureRegistry(page); await seed(page); await page.goto("/"); await openModes(page);
-  await page.getByRole("radio", { name: /测试自适应模式/ }).click();
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  await confirm(page);
-  await expect(page.locator(".test-adaptive-experience")).toBeVisible();
-  await expect(page.locator(".seven-step-mode")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "本课尚未生成当前模式内容" })).toBeVisible();
-  await page.getByRole("navigation", { name: "测试课程选择" }).getByRole("button", { name: courses[1]!.title, exact: true }).click();
-  await expect(page.getByRole("heading", { name: "本课尚未生成当前模式内容" })).toBeVisible();
-  await page.getByRole("button", { name: "请家长生成并审核", exact: true }).click();
-  await page.getByRole("button", { name: "模拟生成内容" }).click();
-  await expect(page.getByRole("heading", { name: "当前模式内容待审核" })).toBeVisible();
-  await expect(page.getByText("本课已审核，可以开始测试学习。")).toHaveCount(0);
-  await page.getByRole("button", { name: "审核并开放测试内容" }).click();
-  await expect(page.getByText("本课已审核，可以开始测试学习。")).toBeVisible();
-  await page.getByRole("navigation", { name: "测试课程选择" }).getByRole("button", { name: courses[0]!.title, exact: true }).click();
-  await expect(page.getByRole("heading", { name: "本课尚未生成当前模式内容" })).toBeVisible();
-  await page.getByRole("radio", { name: /七步/ }).click(); await confirm(page);
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
-  await page.reload();
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
-  await openModes(page); await page.getByRole("radio", { name: /测试自适应模式/ }).click(); await confirm(page);
-  await page.getByRole("navigation", { name: "测试课程选择" }).getByRole("button", { name: courses[1]!.title, exact: true }).click();
-  await expect(page.getByText("本课已审核，可以开始测试学习。")).toBeVisible();
-});
-test("a failed global setting save keeps the outgoing experience and old snapshots", async ({ page }) => {
-  await fixtureRegistry(page); await seed(page);
-  await page.addInitScript(() => {
-    const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = function(key, value) {
-      if ((window as any).__failModeSave && key === "lingonest.mode-settings.v1") throw Error("模拟模式设置保存失败");
-      return original.call(this, key, value);
-    };
-  });
-  await page.goto("/"); await openModes(page);
-  await page.evaluate(() => { (window as any).__failModeSave = true; });
-  await page.getByRole("radio", { name: /测试自适应模式/ }).click(); await confirm(page);
-  await expect(page.getByRole("alert")).toContainText("模拟模式设置保存失败");
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
   await expect(page.getByRole("radio", { name: /七步/ })).toHaveAttribute("aria-checked", "true");
-  expect(await page.evaluate(key => localStorage.getItem(key), legacy.storageKey)).toBe(raw);
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await expect(page.locator(".stage-list")).toBeVisible();
 });
 
-test("settings retain the editor and require its draft to save before switching modes; retry and round-trip preserve legacy progress", async ({ page }) => {
-  await fixtureRegistry(page);
-  await page.route("**/src/native.ts", route => route.fulfill({ contentType: "application/javascript", body: readFileSync(new URL("./fixtures/speech-native.js", import.meta.url), "utf8").replace("saveState: async (input) => {", `saveState: async (input) => {
-    if (window.__holdLearningSave) await new Promise(resolve => { window.__releaseLearningSave = resolve; });
-  `) }));
-  await page.addInitScript(({ snapshot, courses }) => {
-    if (!sessionStorage.getItem("speech-native-fixture")) sessionStorage.setItem("speech-native-fixture", JSON.stringify({ revision: 7, payload: JSON.stringify(snapshot), cfg: { mode: "device", protocol: "openai-speech", speed: .9, voice: "alloy", hasKey: false }, cache: [], variants: {}, active: "", draft: "", requests: 0, plays: 0 }));
-    (window as any).__fixtureCourses = courses;
-  }, { snapshot: legacy.snapshot, courses });
-  await page.goto("/");
-  const navigation = page.getByRole("navigation", { name: "家长导航" });
-  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
-  await navigation.getByRole("button", { name: "课程", exact: true }).click();
-  await page.getByRole("button", { name: "新建课程", exact: true }).click(); await confirm(page);
-  const title = page.getByLabel("课程标题", { exact: true });
-  await title.fill("已保存草稿");
-  const readState = () => page.evaluate(() => JSON.parse(JSON.parse(sessionStorage.getItem("speech-native-fixture")!).payload));
-  await expect.poll(async () => (await readState()).courses[1]?.title).toBe("已保存草稿");
-  const settings = await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"));
-  await page.evaluate(() => { (window as any).__saveFailure = true; });
-  await title.fill("切换前的未保存修改");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toBeVisible();
-  await expect(page.locator(".busy-indicator")).toHaveCount(0);
-  await page.getByRole("radio", { name: /测试自适应模式/ }).click(); await confirm(page);
-  await expect(page.getByRole("alert").filter({ hasText: "保存未完成" }).first()).toBeVisible();
-  await expect(page.locator(".test-adaptive-experience")).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: /七步/ })).toHaveAttribute("aria-checked", "true");
-  expect(await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"))).toBe(settings);
-  await page.getByRole("button", { name: "返回家长空间", exact: true }).click();
-  await expect(title).toHaveValue("切换前的未保存修改");
-  // Internal tab requests and leaving parent space must share the save guard.
-  await page.locator(".parent-child-button").click();
-  await expect(title).toHaveValue("切换前的未保存修改");
-  await page.getByRole("button", { name: "切换到学习空间", exact: true }).click();
-  await expect(title).toHaveValue("切换前的未保存修改");
-  expect(await page.evaluate(() => sessionStorage.getItem("native-document:lingonest.mode-settings.v1"))).toBe(settings);
-  expect((await readState()).courses[1].title).toBe("已保存草稿");
-  await page.evaluate(() => { (window as any).__saveFailure = false; (window as any).__holdLearningSave = true; });
-  await navigation.getByRole("button", { name: "报告", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => typeof (window as any).__releaseLearningSave)).toBe("function");
-  await expect(title).toBeVisible();
-  await expect(page.getByRole("radiogroup", { name: "全局课程模式" })).toHaveCount(0);
-  await navigation.getByRole("button", { name: "概况", exact: true }).click();
-  await expect(title).toBeVisible();
-  await title.fill("保存等待期间的最新修改");
-  await page.evaluate(() => { (window as any).__holdLearningSave = false; (window as any).__releaseLearningSave(); });
-  await expect(page.getByRole("heading", { name: "学习报告", exact: true })).toBeVisible();
-  await navigation.getByRole("button", { name: "课程", exact: true }).click();
-  await page.locator(".course-list button").filter({ hasText: "保存等待期间的最新修改" }).click();
-  await expect(title).toHaveValue("保存等待期间的最新修改");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.locator(".busy-indicator")).toHaveCount(0);
-  const beforeSwitch = await readState();
-  expect(beforeSwitch.courses[1].title).toBe("保存等待期间的最新修改");
+test("a third plugin uses the same frame and its own generation and review without stage assumptions", async ({ page }) => {
+  await seedApplication(page); await fixtureRegistry(page); await page.goto("/"); const before = await snapshot(page);
+  await parentSpace(page); await navigate(page, "设置");
   await page.getByRole("radio", { name: /测试自适应模式/ }).click();
-  await expect(page.locator(".test-adaptive-experience")).toHaveCount(0);
-  await confirm(page);
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
   await expect(page.locator(".test-adaptive-experience")).toBeVisible();
-  const saved = await readState();
-  // A retained editor may refresh its save timestamp while preparing the switch.
-  expect(saved.courses[1]).toEqual({ ...beforeSwitch.courses[1], updatedAt: saved.courses[1].updatedAt });
-  expect({ ...saved, courses: beforeSwitch.courses }).toEqual(beforeSwitch);
-  await page.getByRole("button", { name: "家长空间", exact: true }).click();
-  await page.getByRole("radio", { name: /七步/ }).click(); await confirm(page);
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await readState()).toEqual(saved);
-  await page.reload();
-  await expect(page.locator(".seven-step-mode")).toBeVisible();
-  expect(await readState()).toEqual(saved);
-  const final = await readState();
-  expect(final.courses[0]).toEqual(legacy.snapshot.courses[0]);
-  expect(final.events).toEqual(legacy.snapshot.events);
-  expect(final.runs).toEqual(legacy.snapshot.runs);
-  await page.getByRole("button", { name: "切换到家长空间", exact: true }).click();
-  await navigation.getByRole("button", { name: "课程", exact: true }).click();
-  await page.locator(".course-list button").filter({ hasText: "保存等待期间的最新修改" }).click();
-  await expect(title).toHaveValue("保存等待期间的最新修改");
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText(["学习", "课程", "记录"]);
+  await page.locator(".course-mode-notice").getByRole("button").click(); await adult(page);
+  await page.getByRole("button", { name: "模拟生成内容" }).click();
+  await page.getByRole("button", { name: "审核并开放测试内容" }).click();
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await expect(page.getByText("本课已审核，可以开始测试学习。")).toBeVisible();
+  await page.reload(); await expect(page.getByText("本课已审核，可以开始测试学习。")).toBeVisible();
+  expect(await snapshot(page)).toEqual(before);
+});
+
+test("a failed global selection save leaves the outgoing plugin and all old snapshots intact", async ({ page }) => {
+  await seedApplication(page); await page.goto("/"); const before = await snapshot(page);
+  await parentSpace(page); await navigate(page, "设置");
+  const original = await page.evaluate(key => sessionStorage.getItem(key), modeKey);
+  await page.evaluate(() => { (window as any).__modeSaveFailure = true; });
+  await page.getByRole("radio", { name: /课文闯关/ }).click();
+  await expect(page.getByRole("alert")).toContainText("保存失败");
+  await expect(page.getByRole("radio", { name: /七步/ })).toHaveAttribute("aria-checked", "true");
+  expect(await page.evaluate(key => sessionStorage.getItem(key), modeKey)).toBe(original);
+  expect(await snapshot(page)).toEqual(before);
+});
+
+test("unsaved material prevents navigation and mode changes until retry succeeds, preserving old progress", async ({ page }) => {
+  await seedApplication(page); await page.goto("/"); const before = await snapshot(page);
+  await parentSpace(page); await navigate(page, "课程");
+  await page.getByRole("button", { name: "新建课程", exact: true }).click();
+  await page.getByLabel("课程标题", { exact: true }).fill("切换前的教材草稿");
+  await page.getByLabel("文章或课文原文", { exact: true }).fill("Hello, my friend.");
+  await page.evaluate(() => { (window as any).__saveFailure = true; }); await navigate(page, "设置");
+  await expect(page.getByLabel("课程标题", { exact: true })).toHaveValue("切换前的教材草稿");
+  await expect(page.getByRole("radiogroup")).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__saveFailure = false; }); await navigate(page, "设置");
+  await expect(page.getByRole("radiogroup")).toBeVisible();
+  await switchMode(page, "课文闯关"); await switchMode(page, "七步");
+  const after = await snapshot(page);
+  expect(after.courses.filter((item: any) => item.title === "切换前的教材草稿")).toHaveLength(1);
+  expect(after.courses[0]).toEqual(before.courses[0]); expect(after.events).toEqual(before.events); expect(after.runs).toEqual(before.runs);
 });

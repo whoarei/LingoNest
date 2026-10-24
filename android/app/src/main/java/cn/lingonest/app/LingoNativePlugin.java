@@ -481,7 +481,6 @@ public class LingoNativePlugin extends Plugin {
             stopPlayer();
             stopSpeechInternal("AUDIO_INTERRUPTED", "已开始新的朗读。");
             speechCall = call;
-            notifyListeners("speechStatus", new JSObject().put("phase", "playing").put("source", "device"));
             speechText = text;
             if (ttsReady) { speakReady(); return; }
             main.postDelayed(speechDeadline, 10000);
@@ -518,7 +517,10 @@ public class LingoNativePlugin extends Plugin {
         utteranceId = UUID.randomUUID().toString();
         String id = utteranceId;
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-            @Override public void onStart(String ignored) {}
+            @Override public void onStart(String started) { main.post(() -> {
+                if (id.equals(started) && id.equals(utteranceId) && speechCall != null)
+                    notifyListeners("speechStatus", new JSObject().put("phase", "playing").put("source", "device"));
+            }); }
             @Override public void onDone(String ended) { main.post(() -> completeSpeech(ended, null)); }
             @Override public void onError(String ended) { main.post(() -> completeSpeech(ended, "离线朗读失败，请检查英语语音数据。")); }
             @Override public void onError(String ended, int errorCode) { onError(ended); }
@@ -555,6 +557,17 @@ public class LingoNativePlugin extends Plugin {
         main.post(() -> { cancelAiSpeech(); stopSpeechInternal("AUDIO_INTERRUPTED", "朗读已停止。"); stopPlayer(); call.resolve(); });
     }
 
+    @PluginMethod public void openAppSettings(PluginCall call) {
+        main.post(() -> {
+            if (recorder != null || permissionPending) { call.reject("请先结束录音。", "AUDIO_BUSY"); return; }
+            try {
+                getActivity().startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + getContext().getPackageName())));
+                call.resolve();
+            } catch (Exception failure) { call.reject("无法打开系统设置，请在设备设置中调整麦克风权限。", "SETTINGS_UNAVAILABLE"); }
+        });
+    }
+
     @PluginMethod public void startRecording(PluginCall call) {
         try { NativeGuards.learnerId(call.getString("learnerId")); }
         catch (IllegalArgumentException invalid) { call.reject(invalid.getMessage(), "INVALID_ARGUMENT"); return; }
@@ -587,7 +600,7 @@ public class LingoNativePlugin extends Plugin {
                 call.reject("该档案已进入删除流程，录音已取消。", "RECORDING_CANCELLED"); return;
             }
             if (getPermissionState("microphone") != PermissionState.GRANTED) {
-                call.reject("麦克风权限未允许，可继续其他文字练习。", "MICROPHONE_DENIED"); return;
+                call.reject("未允许麦克风，当前录音无法完成。请家长开启权限；已开放的文字练习仍可继续。", "MICROPHONE_DENIED"); return;
             }
             if (!foreground || destroyed) { call.reject("请回到应用后重新开始录音。", "APP_NOT_ACTIVE"); return; }
             beginRecording(call);

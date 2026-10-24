@@ -12,6 +12,10 @@ export function passageReport(state: PassageState, learnerId: string, courseId: 
     firstAttemptCount: firstAttempts.length,
     firstCorrectCount: firstAttempts.filter(attempt => attempt.correct).length,
     assistedAttemptCount: attempts.filter(attempt => attempt.assisted).length,
+    helpRequestCount: state.sessions.filter(session => session.learnerId === learnerId).flatMap(session => session.helpRequests ?? [])
+      .filter(request => request.courseId === courseId && request.revision === revision).length,
+    helpTrackingComplete: state.sessions.filter(session => session.learnerId === learnerId && session.queue.some(item => item.courseId === courseId && item.revision === revision))
+      .every(session => session.helpRequests !== undefined),
     repairAttemptCount: attempts.length - firstAttempts.length,
     goals: projectGoalProgress(state, learnerId, pkg),
   };

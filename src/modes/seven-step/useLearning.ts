@@ -46,7 +46,7 @@ const localDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>>; services?: SevenStepServices } = {}): LearningUI {
+export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; modeChanging?: Readonly<Ref<boolean>>; courseId?: Readonly<Ref<string | null>>; services?: SevenStepServices } = {}): LearningUI {
   let disposed = false;
   const services = options.services ?? (getCurrentInstance() ? inject(sevenStepServicesKey, undefined) : undefined) ?? createSevenStepServices();
   const repository = services.state;
@@ -113,7 +113,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     () =>
       courses.value.find(
         (record) =>
-          record.id === state.value.learningCourseIds[learner.value?.id ?? ""],
+          record.id === (options.courseId?.value ?? state.value.learningCourseIds[learner.value?.id ?? ""]),
       ) ?? starterRecord,
   );
   const courseMode = computed(() => {
@@ -259,7 +259,12 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     position: index.value,
     total: run.value.length,
     label: runLabel.value,
+    independent: state.value.runs.find(run => run.id === sessionId)?.purpose === "independent",
+    stageId: run.value.length && run.value.every(exercise => exercise.stageId === run.value[0]!.stageId) ? run.value[0]!.stageId : null,
     finished: run.value.length > 0 && index.value >= run.value.length,
+    passed: history.value.filter(attempt => attempt.sessionId === sessionId && attempt.grade.passed).length,
+    pending: history.value.filter(attempt => attempt.sessionId === sessionId && attempt.grade.status === "needs_review").length,
+    assisted: history.value.filter(attempt => attempt.sessionId === sessionId && attempt.hintLevel > 0).length,
   }));
 
   async function transaction(
@@ -583,6 +588,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     items: Exercise[],
     label: string,
     stageId: StageId | null,
+    independent = false,
   ) {
     if (!canLearn()) return;
     if (!confirmed.value) {
@@ -591,15 +597,15 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       return;
     }
     if (busy.value || !learner.value) return;
-    const previous = [...state.value.runs]
+    const latest = [...state.value.runs]
       .reverse()
       .find(
         (r) =>
           r.learnerId === learner.value?.id &&
           r.stageId === stageId &&
-          r.courseId === course.value.id &&
-          r.index < r.exerciseIds.length,
+          r.courseId === course.value.id,
       );
+    const previous = latest && latest.index < latest.exerciseIds.length && (!independent || latest.purpose === "independent") ? latest : undefined;
     const stored: PracticeRun = previous ?? {
       id: makeId(),
       learnerId: learner.value.id,
@@ -612,6 +618,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       answer: "",
       selectedIds: [],
       recordingPath: null,
+      ...(independent ? { purpose: "independent" as const } : {}),
     };
     const first = exercises.value.find(
       (e) => e.id === stored.exerciseIds[stored.index],
@@ -668,6 +675,10 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       return;
     }
     void begin(queue.value, "今日复习", null);
+  }
+  function startIndependentStage(id: StageId) {
+    if (!canLearn() || !stages.value.find(stage => stage.id === id)?.available) return;
+    void begin(exercises.value.filter(exercise => exercise.stageId === id), `${stageDefinitions.find(stage => stage.id === id)?.title ?? '口语'} · 独立尝试`, id, true);
   }
   async function submit() {
     if (!canLearn()) return;
@@ -832,16 +843,16 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
       return;
     }
     const ex = view.value === "practice" ? currentExercise.value : null;
-    if (ex && ["S4", "S5"].includes(ex.stageId) && !feedback.value) {
-      await revealReference();
-      if (hintLevel.value !== 3) return;
-    } else if (ex?.exposureTargets?.length) {
-      if (!(await exposure(ex.exposureTargets))) return;
-    }
+    const learnerId = learner.value?.id;
     await operation(async () => {
-      await speech.play(text);
+      await speech.play(text, async () => {
+        if (!ex || view.value !== "practice" || currentExercise.value?.id !== ex.id || learner.value?.id !== learnerId || feedback.value) return;
+        if (["S4", "S5"].includes(ex.stageId)) await revealReference();
+        else if (ex.exposureTargets?.length) await exposure(ex.exposureTargets);
+      });
     });
   }
+  const microphoneDenied = ref(false);
   async function toggleRecording() {
     if (!recording.value && !canLearn()) return;
     if (!isAndroid) {
@@ -862,7 +873,8 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
         });
       } else {
         await native.stopSpeech();
-        await native.startRecording({ learnerId: learner.value!.id });
+        try { await native.startRecording({ learnerId: learner.value!.id }); microphoneDenied.value = false; }
+        catch (failure) { microphoneDenied.value = (failure as { code?: string }).code === "MICROPHONE_DENIED"; throw failure; }
         recording.value = true;
         recordingPath.value = null;
       }
@@ -1045,6 +1057,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     confirmCourse,
     openLesson,
     startStage,
+    startIndependentStage,
     startReview,
     submit,
     next,
@@ -1052,7 +1065,7 @@ export function useLearning(options: { activeModeId?: Readonly<Ref<string>>; mod
     revealReference,
     speak,
     stopSpeech,
-    toggleRecording,
+    toggleRecording, microphoneDenied,
     playRecording,
     stopPlayback,
     reviewAttempt,

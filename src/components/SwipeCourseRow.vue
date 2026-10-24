@@ -152,3 +152,10 @@ function click(event: MouseEvent) {
     </button>
   </div>
 </template>
+<style scoped>
+.swipe-course-row { position:relative; overflow:hidden; border-radius:13px; touch-action:pan-y; }
+.swipe-course-content { position:relative; z-index:1; background:#f7f6f0; transition:transform .18s ease; }
+.dragging .swipe-course-content { transition:none; }
+.swipe-delete { position:absolute; right:0; top:0; bottom:0; width:88px; background:#a84f3a; color:white; border:0; border-radius:0 13px 13px 0; font:inherit; cursor:pointer; }
+@media(prefers-reduced-motion:reduce) { .swipe-course-content { transition:none; } }
+</style>

@@ -4,6 +4,7 @@ import { makePassageAudioManifest } from "../packages/learning-modes/passage-pat
 import { passagePathStateCodec } from "../packages/learning-modes/passage-path/state";
 import type { PassageReview } from "../packages/learning-modes/passage-path/model";
 import legacy from "./fixtures/seven-step-legacy.json";
+import { reviseQuestion, reviseOutline } from "../packages/learning-modes/passage-path/review";
 
 let setup: ReturnType<typeof setupCatalog>;
 beforeEach(() => { setup = setupCatalog(); });
@@ -17,6 +18,31 @@ async function candidate(revision = "candidate-one") {
   return { services, id, review };
 }
 describe("parent candidate audit and independent publication", () => {
+  it("edits a single candidate question without changing old publication, attempts or other audit decisions", async () => {
+    const { services, id, review } = await candidate();
+    await services.passage.publishCandidate(id, review.package.revision, async () => true);
+    const before = structuredClone(services.passage.state.snapshot());
+    const question = review.package.questions[0]!;
+    const revised = reviseQuestion(review, { ...question, explanation: "家长修订后的答案说明。" }, "edited-question");
+    expect(revised.reviewedQuestionIds).toEqual(review.reviewedQuestionIds.filter(item => item !== question.id));
+    expect(revised.sourceConfirmed).toBe(true);
+    await services.passage.saveReview(revised);
+    expect(services.passage.state.snapshot().packages).toEqual(before.packages);
+    expect(services.passage.state.snapshot().publications).toEqual(before.publications);
+    expect(review.package.questions[0]!.explanation).toBe(question.explanation);
+    await expect(services.passage.publishCandidate(id, "edited-question", async () => true)).rejects.toThrow("逐题审核");
+    expect(() => reviseQuestion(review, { ...question, sourceTurnIds: ["missing"] }, "invalid-question")).toThrow();
+  });
+  it("invalidates only the changed outline's related questions and requires source confirmation again", async () => {
+    const { review } = await candidate();
+    const outline = structuredClone(review.package);
+    outline.chunks[0]!.meaning = "修订后的意义说明";
+    const revised = reviseOutline(review, outline, "edited-outline");
+    const changedGoals = review.package.goals.filter(goal => goal.chunkId === outline.chunks[0]!.id).map(goal => goal.id);
+    expect(revised.sourceConfirmed).toBe(false);
+    expect(revised.reviewedQuestionIds).toEqual(review.package.questions.filter(question => !changedGoals.includes(question.goalId)).map(question => question.id));
+    expect(review.sourceConfirmed).toBe(true);
+  });
   it("requires every candidate question, original confirmation and actual complete audio", async () => {
     const { services, id, review } = await candidate();
     review.reviewedQuestionIds.pop(); await services.passage.saveReview(review);

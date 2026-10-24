@@ -3,6 +3,8 @@ import type { CatalogSnapshot, MaterialInput } from "../../../packages/learning-
 import type { PassagePackage, PassageResponse, PassageReview } from "../../../packages/learning-modes/passage-path/model";
 import { emptyPassageState } from "../../../packages/learning-modes/passage-path/state";
 import { compilePassagePackage, makePassageAudioManifest } from "../../../packages/learning-modes/passage-path/authoring";
+import { reviseQuestion, reviseOutline, type PassageOutline } from "../../../packages/learning-modes/passage-path/review";
+import type { PassageQuestion } from "../../../packages/learning-modes/passage-path/model";
 import { generatePassageCandidate } from "../../../packages/learning-modes/passage-path/prompts";
 import { passageReport } from "../../../packages/learning-modes/passage-path/reporting";
 import { questionFor, packageFor } from "../../../packages/learning-modes/passage-path/references";
@@ -13,17 +15,19 @@ import { useModeSelection } from "../../platform/mode-selection";
 import { createContentRequests } from "../../platform/content-requests";
 import { contentNative } from "../../platform/content";
 import { useSpeech } from "../../platform/speech";
+import { useWorkspace } from "../../application/workspace";
 
-export type PassageView = "home" | "practice" | "source" | "parent" | "settings";
+export type PassageView = "home" | "practice" | "source" | "parent" | "settings" | "report";
 const identity = (prefix: string) => `${prefix}.${Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
 export function useExperience() {
   const services = inject(passageServicesKey)!, catalog = inject(catalogKey)!;
+  const workspace = useWorkspace();
   const mode = useModeSelection(), requests = createContentRequests();
   const ready = ref(false), busy = ref(false), generating = ref(false), error = ref(""), message = ref("");
   const view = ref<PassageView>("home"), settingsOrigin = ref<PassageView>("home");
   const data = ref(emptyPassageState()), directory = ref<CatalogSnapshot>({ learners: [], activeLearnerId: null, defaultCourseId: "", learningCourseIds: {}, courses: [] });
   const learner = computed(() => directory.value.learners.find(item => item.id === directory.value.activeLearnerId));
-  const courseId = computed(() => directory.value.learningCourseIds[learner.value?.id ?? ""] ?? directory.value.defaultCourseId);
+  const courseId = computed(() => workspace.surface.value === "report" && workspace.courseId.value ? workspace.courseId.value : directory.value.learningCourseIds[learner.value?.id ?? ""] ?? directory.value.defaultCourseId);
   const course = computed(() => directory.value.courses.find(item => item.id === courseId.value));
   const publication = computed(() => data.value.publications.find(item => item.courseId === courseId.value));
   const pkg = computed(() => data.value.packages.find(item => item.courseId === courseId.value && item.revision === publication.value?.revision));
@@ -60,8 +64,8 @@ export function useExperience() {
   const report = computed(() => pkg.value && learner.value ? passageReport(data.value, learner.value.id, pkg.value.courseId, pkg.value.revision) : null);
   const activeRun = computed(() => data.value.sessions.some(item => item.status === "active" && item.learnerId === learner.value?.id && item.courseId === courseId.value));
   let disposed = false, jobEpoch = 0;
-  const current = () => !disposed && mode.activeModeId.value === "passage-path";
-  const store = services.createStore(() => ({ activeModeId: current() ? "passage-path" : "unloaded",
+  const current = () => !disposed && (mode.activeModeId.value === "passage-path" || workspace.surface.value === "report" || workspace.parent.value && workspace.surface.value === "authoring");
+  const store = services.createStore(() => ({ activeModeId: current() && mode.activeModeId.value === "passage-path" && workspace.surface.value === "learning" ? "passage-path" : "unloaded",
     learnerId: learner.value?.id ?? "", courseId: courseId.value,
     courses: data.value.publications.map(publication => {
       const pack = data.value.packages.find(pack => pack.courseId === publication.courseId && pack.revision === publication.revision)!;
@@ -79,6 +83,17 @@ export function useExperience() {
   let savedMaterial = "", savedReview = "";
   const review = ref<PassageReview | null>(null), reviewIndex = ref(0);
   const reviewQuestion = computed(() => review.value?.package.questions[reviewIndex.value]);
+  const editingQuestion = ref(false);
+  const editingOutline = ref(false);
+  const reviewFilter = ref<"all" | "pending" | "returned">("all");
+  const reviewLevel = ref("all"), reviewGoal = ref("all");
+  const reviewGroupQuestions = computed(() => review.value?.package.questions.map((question, index) => ({ question, index })).filter(({ question }) => {
+    if (reviewGoal.value !== "all" && question.goalId !== reviewGoal.value) return false;
+    const level = review.value!.package.levels.find(level => level.id === reviewLevel.value);
+    if (level && ![...level.newGoalIds, ...level.reviewGoalIds].includes(question.goalId)) return false;
+    return true;
+  }) ?? []);
+  const reviewQuestions = computed(() => reviewGroupQuestions.value.filter(({ question }) => reviewFilter.value === "returned" ? review.value!.returnedQuestionIds?.includes(question.id) : reviewFilter.value === "all" || !review.value!.reviewedQuestionIds.includes(question.id)));
   const candidateAudio = computed(() => review.value ? audioFor(review.value.package) : baseSpeech);
   const publishedManaged = computed(() => data.value.publications.find(item => item.courseId === managedId.value));
   function bindManager(id: string) {
@@ -89,7 +104,10 @@ export function useExperience() {
     savedMaterial = JSON.stringify(material.value);
     const candidates = data.value.candidates?.filter(item => item.package.courseId === id) ?? [];
     review.value = copy(candidates[candidates.length - 1] ?? null);
-    savedReview = JSON.stringify(review.value); reviewIndex.value = 0;
+    savedReview = JSON.stringify(review.value); editingQuestion.value = false; editingOutline.value = false;
+    reviewLevel.value = "all"; reviewGoal.value = "all";
+    reviewFilter.value = review.value && review.value.reviewedQuestionIds.length < review.value.package.questions.length ? "pending" : "all";
+    reviewIndex.value = Math.max(0, review.value?.package.questions.findIndex(question => !review.value!.reviewedQuestionIds.includes(question.id)) ?? 0);
   }
   async function refreshDirectory() { const value = await catalog.read(); if (current()) directory.value = value; }
   async function checkAudio() {
@@ -100,12 +118,16 @@ export function useExperience() {
     }
   }
   async function stopAudio() { await Promise.all([baseSpeech.stop(), ...[...pool.values()].map(item => item.speech.stop())]); }
-  async function persistInput() {
+  let savingInput: Promise<void> | undefined;
+  async function flushInput() {
     while (current()) {
       const run = session.value;
       if (run?.status !== "active" || run.feedbackAttemptId || JSON.stringify(run.input) === JSON.stringify(response.value)) return;
       await store.dispatch({ type: "input", sessionId: run.id, index: run.index, response: copy(response.value) });
     }
+  }
+  function persistInput() {
+    return savingInput ??= flushInput().finally(() => { savingInput = undefined; });
   }
   async function persistDraft() {
     while (current() && (savedMaterial !== JSON.stringify(material.value) || review.value && savedReview !== JSON.stringify(review.value))) {
@@ -140,7 +162,7 @@ export function useExperience() {
       await persistInput(); await persistDraft(); await stopAudio();
       if (next === "source") {
         const active = data.value.sessions.find(item => item.status === "active" && item.learnerId === learner.value?.id && item.courseId === courseId.value);
-        if (active) await store.dispatch({ type: "assist", sessionId: active.id, index: active.index });
+        if (active) await store.dispatch({ type: "assist", sessionId: active.id, index: active.index, kind: "source" });
       }
       if (next === "settings") settingsOrigin.value = view.value;
       originalOpen.value = false; view.value = next;
@@ -167,8 +189,12 @@ export function useExperience() {
   }
   async function submit() {
     await run(async () => {
+      // Drain autosaves before submission so a keyboard/blur event cannot queue
+      // a stale input transaction behind the submitted answer.
+      await persistInput();
       const run = session.value;
       if (!run) throw Error("请重新进入学习。");
+      if (run.feedbackAttemptId) return;
       await checkAudio();
       await store.dispatch({ type: "submit", sessionId: run.id, index: run.index, attemptId: identity("attempt"), response: copy(response.value) });
     });
@@ -181,7 +207,7 @@ export function useExperience() {
   function inputChanged() { void persistInput().catch(failure => { if (current()) error.value = String(failure instanceof Error ? failure.message : failure); }); }
   async function reveal(kind: "source" | "hint") { await run(async () => {
     const run = session.value;
-    if (run?.status === "active") await store.dispatch({ type: "assist", sessionId: run.id, index: run.index });
+    if (run?.status === "active") await store.dispatch({ type: "assist", sessionId: run.id, index: run.index, kind });
     if (kind === "source") originalOpen.value = true; else hintOpen.value = true;
   }); }
   async function play(text: string, pack: PassagePackage | undefined = questionPackage.value) { await run(async () => {
@@ -213,6 +239,7 @@ export function useExperience() {
         revision: identity("revision"), model: config.generation.model, generatedAt: new Date().toISOString() }), sourceConfirmed: false, reviewedQuestionIds: [] };
       await services.saveReview(candidate, valid); if (!valid()) return;
       review.value = candidate; savedReview = JSON.stringify(candidate); reviewIndex.value = 0;
+      reviewLevel.value = "all"; reviewGoal.value = "all"; reviewFilter.value = "pending";
       message.value = "候选题库已保存。请核对原文、全部题目与答案，再准备音频并启用。";
     } catch (failure) { if (valid()) error.value = failure instanceof Error ? failure.message : String(failure); }
     finally { if (valid()) generating.value = false; }
@@ -224,13 +251,57 @@ export function useExperience() {
     await services.publishCandidate(candidate.package.courseId, candidate.package.revision, async () => {
       await candidateAudio.value.refreshCourse(); return candidateAudio.value.courseReady.value && candidateAudio.value.courseAudio.value.complete;
     }, current);
-    sessionId.value = null; message.value = "本版本已开放。新版本路径独立记录，历史学习记录保留。";
+    sessionId.value = null; reviewFilter.value = "all"; message.value = "本模式内容已发布。当前给孩子开放的模式由统一设置管理，历史学习记录保留。";
   }); }
   function toggleReviewed(checked: boolean) {
     if (!review.value || !reviewQuestion.value) return;
     const id = reviewQuestion.value.id;
     review.value.reviewedQuestionIds = review.value.reviewedQuestionIds.filter(item => item !== id);
     if (checked) review.value.reviewedQuestionIds.push(id);
+    if (checked && review.value.returnedQuestionIds) review.value.returnedQuestionIds = review.value.returnedQuestionIds.filter(item => item !== id);
+  }
+  async function saveQuestion(question: PassageQuestion) { return run(async () => {
+    if (!review.value) throw Error("请重新进入候选题库。");
+    await persistDraft();
+    const candidate = reviseQuestion(review.value, question, identity("revision"));
+    await services.saveReview(candidate, current);
+    review.value = candidate; savedReview = JSON.stringify(candidate); editingQuestion.value = false;
+    message.value = "本题修改已保存，需重新审核。其他审核进度保留，请核对新修订的音频。";
+  }); }
+  async function returnQuestion() { await run(async () => {
+    if (!review.value || !reviewQuestion.value) return;
+    const id = reviewQuestion.value.id;
+    review.value.reviewedQuestionIds = review.value.reviewedQuestionIds.filter(item => item !== id);
+    review.value.returnedQuestionIds = [...new Set([...(review.value.returnedQuestionIds ?? []), id])];
+    await persistDraft(); message.value = "本题已退回修改，修订并重新审核后才能发布。";
+  }); }
+  async function saveOutline(outline: PassageOutline) { return run(async () => {
+    if (!review.value) throw Error("请重新进入候选题库。");
+    await persistDraft();
+    const candidate = reviseOutline(review.value, outline, identity("revision"));
+    await services.saveReview(candidate, current);
+    review.value = candidate; savedReview = JSON.stringify(candidate); editingOutline.value = false;
+    reviewIndex.value = Math.max(0, candidate.package.questions.findIndex(question => !candidate.reviewedQuestionIds.includes(question.id)));
+    message.value = "知识块与关卡修改已保存，请重新确认教材安排并审核相关题目。";
+  }); }
+  async function approveAndNext() { await run(async () => {
+    toggleReviewed(true); await persistDraft();
+    const pending = reviewGroupQuestions.value.filter(({ question }) => !review.value!.reviewedQuestionIds.includes(question.id));
+    const next = pending.find(item => item.index > reviewIndex.value) ?? pending[0];
+    if (next) reviewIndex.value = next.index;
+    else {
+      const remaining = review.value!.package.questions.length - review.value!.reviewedQuestionIds.length;
+      message.value = remaining ? `这一组已审核完成，其他分组还有 ${remaining} 道待审核。` : "全部题目已审核，请核对音频并发布。";
+    }
+  }); }
+  function filterReview(filter: "all" | "pending" | "returned") {
+    reviewFilter.value = filter;
+    if (!reviewQuestions.value.some(item => item.index === reviewIndex.value)) reviewIndex.value = reviewQuestions.value[0]?.index ?? reviewIndex.value;
+  }
+  function groupReview() {
+    const level = review.value?.package.levels.find(level => level.id === reviewLevel.value);
+    if (level && ![...level.newGoalIds, ...level.reviewGoalIds].includes(reviewGoal.value)) reviewGoal.value = "all";
+    filterReview(reviewFilter.value);
   }
   function materialChanged() { review.value = null; savedReview = "null"; }
   async function addLearner(nickname: string) { await run(async () => { await persistInput(); await persistDraft();
@@ -242,13 +313,14 @@ export function useExperience() {
       bindManager(courseId.value); ready.value = true;
     });
   }
-  onScopeDispose(mode.beforeSwitch(prepareLeave));
+  async function refreshContext() { await refreshDirectory(); data.value = await services.state.refresh(); await checkAudio(); sessionId.value = null; }
   onScopeDispose(() => { disposed = true; jobEpoch++; stopSubscription(); void requests.dispose();
     pool.forEach(item => item.scope.stop()); pool.clear(); });
   void boot();
   return { mode, ready, busy, generating, error, message, view, settingsOrigin, directory, learner, courseId, course, pkg, publication,
     data, report, session, question, questionPackage, item, feedback, response, originalOpen, hintOpen, activeRun, audioAvailable,
     baseSpeech, processingAudio, candidateAudio: computed(() => reactive(candidateAudio.value)), managedId, managed, material, review, reviewIndex, reviewQuestion, publishedManaged,
+    editingQuestion, editingOutline, reviewFilter, reviewLevel, reviewGoal, groupReview, reviewGroupQuestions, reviewQuestions, saveQuestion, saveOutline, returnQuestion, approveAndNext, filterReview,
     navigate, selectLearner, selectCourse, start, submit, next, inputChanged, reveal, play, openManager, saveMaterial,
-    generate, cancelGeneration, publish, toggleReviewed, materialChanged, saveReviewDraft, addLearner, prepareLeave, run, boot };
+    generate, cancelGeneration, publish, toggleReviewed, materialChanged, saveReviewDraft, addLearner, prepareLeave, refreshContext, run, boot };
 }

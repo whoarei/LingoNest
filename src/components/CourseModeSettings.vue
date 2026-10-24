@@ -25,6 +25,7 @@ async function choose(id: string) {
       </button>
     </div>
     <p v-if="selection.modes.length === 1" class="mode-note">目前只有{{ selection.modes[0]?.title }}模式可用，更多模式接入后会出现在这里。</p>
+    <p v-if="selection.modes.length === 0" class="mode-note">尚未接入学习模式。教材、孩子档案和应用设置可以继续管理。</p>
     <p class="mode-note">切换保留各模式的课程内容和学习进度。课程缺少当前模式内容时，请家长先生成并审核，孩子才能开始学习。</p>
     <p v-if="error || selection.error.value" role="alert">{{ error || selection.error.value }}</p>
   </section>

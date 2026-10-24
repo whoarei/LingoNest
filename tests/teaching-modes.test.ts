@@ -45,6 +45,11 @@ describe("independent teaching mode contracts", () => {
     expect(() => createTeachingModeRegistry([mode], "missing")).toThrow("尚未安装");
     expect(() => createTeachingModeRegistry([{ ...mode, identity: { ...mode.identity, id: "../bad" } }], "../bad")).toThrow("无效");
   });
+  it("allows an application with no teaching plugins to retain its management shell", () => {
+    const registry = createTeachingModeRegistry([], "seven-step");
+    expect(registry.modes).toEqual([]);
+    expect(() => registry.requireMode("seven-step")).toThrow("尚未安装");
+  });
 
   it("shares only snapshot mechanics and leaves payload semantics to the codec", async () => {
     const codec = {

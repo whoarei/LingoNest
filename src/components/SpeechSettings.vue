@@ -10,6 +10,7 @@ import {
 import type { SpeechController } from "../platform/speech";
 import { speechVoices, speechSample, type SpeechInput } from "../speech-types";
 import Icon from "./AppIcon.vue";
+import { useOperationNotices } from "../platform/notifications";
 const props = defineProps<{ speech: UnwrapNestedRefs<SpeechController> }>();
 const form = reactive<SpeechInput>({ ...props.speech.configuration });
 const apiKey = ref(""),
@@ -18,6 +19,7 @@ const apiKey = ref(""),
   message = ref(""),
   error = ref(""),
   confirmReset = ref(false);
+const applicationNotices = useOperationNotices(message, error);
 const voices = computed(() => speechVoices[form.protocol]);
 watch(
   () => form.protocol,
@@ -273,8 +275,8 @@ onBeforeUnmount(() => {
     >
       {{ speech.phase === "generating" ? "取消语音生成" : "停止播放" }}
     </button>
-    <p v-if="message" class="inline-note" role="status">{{ message }}</p>
-    <p v-if="error" class="inline-note speech-error" role="alert">
+    <p v-if="message && !applicationNotices" class="inline-note" role="status">{{ message }}</p>
+    <p v-if="error && !applicationNotices" class="inline-note speech-error" role="alert">
       {{ error }}
     </p>
     <div v-if="speech.supported" class="speech-cache">

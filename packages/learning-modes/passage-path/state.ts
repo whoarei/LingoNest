@@ -24,6 +24,8 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
       requireValid(!keys.has(key) && typeof candidate.sourceConfirmed === "boolean" && ids(candidate.reviewedQuestionIds) &&
         candidate.reviewedQuestionIds.every(id => candidate.package.questions.some(question => question.id === id)), "候选审核引用无效或重复。");
       keys.add(key);
+      requireValid(candidate.returnedQuestionIds === undefined || ids(candidate.returnedQuestionIds) && candidate.returnedQuestionIds.every(id =>
+        candidate.package.questions.some(question => question.id === id) && !candidate.reviewedQuestionIds.includes(id)), "退回修改的题目引用无效。");
       const published = state.packages.find(pkg => pkg.courseId === candidate.package.courseId && pkg.revision === candidate.package.revision);
       requireValid(!published || JSON.stringify(published) === JSON.stringify(candidate.package), "候选与已发布内容冲突。");
       requireValid([...state.packages, ...state.candidates!.map(item => item.package)].filter(pkg => pkg.courseId === candidate.package.courseId)
@@ -42,6 +44,11 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
   const activeScopes = new Set<string>();
   for (const session of state.sessions) {
     validateSession(state, session);
+    if (session.helpRequests !== undefined) {
+      requireValid(array(session.helpRequests, 1000) && session.helpRequests.every(request => record(request) && (request.afterAnswer === undefined || typeof request.afterAnswer === "boolean") &&
+        ["source", "hint"].includes(request.kind) && session.queue.some(item => item.courseId === request.courseId && item.revision === request.revision && item.questionId === request.questionId)) &&
+        new Set(session.helpRequests.map(request => JSON.stringify([request.courseId, request.revision, request.questionId, request.kind]))).size === session.helpRequests.length, "主动查看记录无效或重复。");
+    }
     if (session.status === "active") {
       const scope = JSON.stringify([session.learnerId, session.courseId]);
       requireValid(!activeScopes.has(scope), "同一孩子课程存在多个活跃会话。"); activeScopes.add(scope);
@@ -90,7 +97,7 @@ export function validatePassageState(value: unknown): asserts value is PassageSt
 function validateSession(state: PassageState, session: PassageSession) {
   requireValid(learnerIdentity(session.learnerId) && id(session.courseId) && id(session.revision) && ["path", "replay", "practice"].includes(session.kind) &&
     ["active", "completed", "retired"].includes(session.status) && time(session.startedAt) && typeof session.baseline === "boolean" &&
-    Number.isSafeInteger(session.seed) && session.seed >= 0 && session.seed <= 0xFFFFFFFF && session.schedulerVersion === "1", "会话格式或版本无效。");
+    Number.isSafeInteger(session.seed) && session.seed >= 0 && session.seed <= 0xFFFFFFFF && ["1", "2"].includes(session.schedulerVersion), "会话格式或版本无效。");
   const pkg = packageFor(state, session.courseId, session.revision);
   const purgedBase = session.purgedBaseCount ?? 0, purgedCount = session.purgedQuestionCount ?? 0;
   requireValid(Number.isInteger(purgedBase) && purgedBase >= 0 && purgedBase <= pkg.rules.maxCrossCourse &&

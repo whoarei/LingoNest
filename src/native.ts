@@ -43,6 +43,7 @@ export interface LingoNativeAPI {
   }): Promise<{ cached?: boolean; source: "course" | "device" } | void>;
   stopSpeech(): Promise<void>;
   startRecording(options: { learnerId: string }): Promise<void>;
+  openAppSettings(): Promise<void>;
   stopRecording(): Promise<{ path: string }>;
   cancelRecording(): Promise<void>;
   playRecording(options: { path: string }): Promise<void>;

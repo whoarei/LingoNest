@@ -2,6 +2,7 @@
 import { ref, type UnwrapNestedRefs } from "vue";
 import type { SpeechController } from "../platform/speech";
 import Icon from "./AppIcon.vue";
+import { useOperationNotices } from "../platform/notifications";
 const props = defineProps<{
   speech: UnwrapNestedRefs<SpeechController>;
   authorize: (label: string, action: () => Promise<void>) => Promise<void>;
@@ -11,6 +12,7 @@ const busy = ref(false),
   message = ref(""),
   error = ref(""),
   confirmReset = ref(false);
+const applicationNotices = useOperationNotices(message, error);
 async function perform(action: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true;
@@ -167,8 +169,8 @@ async function generate() {
     <p v-if="speech.phase !== 'idle'">
       <button class="text-button" @click="speech.stop">停止播放</button>
     </p>
-    <p v-if="message" class="inline-note" role="status">{{ message }}</p>
-    <p v-if="error" class="inline-note speech-error" role="alert">
+    <p v-if="message && !applicationNotices" class="inline-note" role="status">{{ message }}</p>
+    <p v-if="error && !applicationNotices" class="inline-note speech-error" role="alert">
       {{ error }}
     </p>
   </section>

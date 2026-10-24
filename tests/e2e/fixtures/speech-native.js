@@ -88,6 +88,7 @@ export const native = {
   loadDocument: async ({ key }) => JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}'),
   saveDocument: async ({ key, expectedRevision, payload }) => {
     if (window.__modeSaveFailure) throw Error('模拟模式设置保存失败');
+    if (window.__documentSaveDelay) await new Promise(resolve => setTimeout(resolve, window.__documentSaveDelay));
     const current = JSON.parse(sessionStorage.getItem('native-document:' + key) || '{"revision":0,"payload":null}');
     if (current.revision !== expectedRevision) throw Error('课程模式设置已更新，请重新打开');
     const next = { revision: current.revision + 1, payload };
@@ -139,6 +140,9 @@ export const native = {
     if (window.__recordingUnavailable) throw Error("录音不存在或已删除。");
   },
   cancelRecording: async () => {},
+  startRecording: async ({ learnerId }) => { window.__recordingOwner = learnerId; },
+  stopRecording: async () => ({ path: `recordings/${window.__recordingOwner}/test.m4a` }),
+  openAppSettings: async () => { window.__openedAppSettings = true; },
   speak: async ({ text }) => {
     const id = key() + text,
       cached = state.cache.includes(id);

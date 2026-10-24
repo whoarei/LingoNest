@@ -32,6 +32,7 @@ export function removePassageCourse(state: PassageState, courseId: string): Pass
     session.purgedQuestionCount = (session.purgedQuestionCount ?? 0) + oldQueue.length - kept.length;
     session.purgedCourseIds = [...new Set([...(session.purgedCourseIds ?? []), courseId])];
     session.assistedGoals = session.assistedGoals.filter(goal => goal.courseId !== courseId);
+    if (session.helpRequests) session.helpRequests = session.helpRequests.filter(request => request.courseId !== courseId);
     if (oldQueue[oldIndex]?.courseId === courseId) { session.input = { text: "", selectedIds: [] }; session.feedbackAttemptId = null; }
     if (session.status === "active") session.status = "retired";
     for (const attempt of next.attempts.filter(attempt => attempt.sessionId === session.id)) attempt.index = positions.get(attempt.index)!;

@@ -6,6 +6,7 @@ import {
   type ContentConfiguration,
 } from "../platform/content";
 import { isAndroid } from "../native";
+import { useOperationNotices } from "../platform/notifications";
 const configuration = reactive<Record<ContentKind, ContentConfiguration>>({
   recognition: { baseUrl: "", model: "", hasKey: false },
   generation: { baseUrl: "", model: "", hasKey: false },
@@ -15,6 +16,7 @@ const busy = ref(isAndroid),
   error = ref(""),
   message = ref(""),
   confirmClear = ref<ContentKind | null>(null);
+const applicationNotices = useOperationNotices(message, error);
 const labels = { recognition: "文字识别", generation: "课程生成" };
 onMounted(async () => {
   if (isAndroid)
@@ -151,9 +153,9 @@ async function clear(kind: ContentKind) {
         </fieldset>
       </form>
     </div>
-    <p v-if="error" role="alert" class="inline-note speech-error">
+    <p v-if="error && !applicationNotices" role="alert" class="inline-note speech-error">
       {{ error }}
     </p>
-    <p v-if="message" role="status" class="inline-note">{{ message }}</p>
+    <p v-if="message && !applicationNotices" role="status" class="inline-note">{{ message }}</p>
   </section>
 </template>

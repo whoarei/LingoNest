@@ -43,6 +43,10 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
   requireValid(levelId === null || level, "关卡不存在。");
   const ownProgress = projectGoalProgress(state, context.learnerId, pkg);
   const newGoals = level?.newGoalIds ?? [];
+  // Existing packages retain their audited lower/upper budgets. Frozen sessions
+  // are never rescheduled; only a newly started round uses this shorter policy.
+  const requiredCoverage = newGoals.reduce((sum, id) => sum + (pkg.goals.find(goal => goal.id === id)!.requiresRecall ? 2 : 1), level?.reviewGoalIds.length ?? 0);
+  const targetCount = Math.min(pkg.rules.questionCount, Math.max(pkg.rules.minQuestionCount, requiredCoverage, newGoals.length * 3 + (level?.reviewGoalIds.length ?? 0)));
   const currentGoals = level ? [...level.newGoalIds, ...level.reviewGoalIds] : ownProgress.filter(goal => goal.seen).map(goal => goal.goalId);
   const bank = shuffled(pkg.questions.filter(question => currentGoals.includes(question.goalId)), random);
   const selected: SessionItem[] = [];
@@ -53,7 +57,7 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
   const key = (item: { courseId: string; revision: string; questionId: string }) => JSON.stringify([item.courseId, item.revision, item.questionId]);
   const add = (origin: PassagePackage, question: PassageQuestion, reason: SelectionReason) => {
     const item = sessionItem(origin, question, reason, random);
-    if (used.has(key(item)) || usedContent.has(questionFingerprint(question)) || selected.length >= pkg.rules.questionCount) return false;
+    if (used.has(key(item)) || usedContent.has(questionFingerprint(question)) || selected.length >= targetCount) return false;
     if (origin.courseId !== pkg.courseId && crossCourse >= pkg.rules.maxCrossCourse) return false;
     selected.push(item); used.add(key(item)); usedContent.add(questionFingerprint(question));
     if (origin.courseId !== pkg.courseId) crossCourse++;
@@ -66,8 +70,14 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
   }
   for (const goalId of level?.reviewGoalIds ?? []) add(pkg, bank.find(question => question.goalId === goalId)!, "current");
 
-  // Preserve five current-goal tasks where possible, while leaving room for review.
-  const currentQuota = Math.max(selected.length, pkg.rules.questionCount - pkg.rules.dueCount - pkg.rules.weakCount);
+  // Prefer a different way of expressing a new goal before more recognition
+  // variants. It keeps a short round varied without dropping recall coverage.
+  for (const goalId of newGoals) {
+    const supported = bank.find(question => question.goalId === goalId && question.demand === "supported");
+    if (supported) add(pkg, supported, "current");
+  }
+
+  const currentQuota = Math.max(selected.length, targetCount - pkg.rules.dueCount - pkg.rules.weakCount);
   for (const question of bank) {
     if (selected.length >= currentQuota) break;
     add(pkg, question, "current");
@@ -96,7 +106,12 @@ export function scheduleQuestions(state: PassageState, context: RuntimeContext, 
     }
   };
   takeReviews("due", pkg.rules.dueCount); takeReviews("weak", pkg.rules.weakCount);
-  for (const question of bank) add(pkg, question, "current");
+  const selectedKinds = new Set(selected.filter(item => item.courseId === pkg.courseId).map(item => {
+    const question = pkg.questions.find(question => question.id === item.questionId)!;
+    return `${question.goalId}:${question.kind}`;
+  }));
+  const varietyBank = [...bank].sort((a, b) => Number(selectedKinds.has(`${a.goalId}:${a.kind}`)) - Number(selectedKinds.has(`${b.goalId}:${b.kind}`)));
+  for (const question of varietyBank) add(pkg, question, "current");
   requireValid(selected.length >= pkg.rules.minQuestionCount, "可用题目不足，请家长补充并审核内容。");
 
   // Only recognition for newly introduced goals is a prerequisite. Supported work follows it.

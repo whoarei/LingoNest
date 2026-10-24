@@ -127,3 +127,14 @@ function move(index: number, delta: number) {
     />
   </div>
 </template>
+<style scoped>
+.course-source-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:14px; margin:20px 0; }
+.course-source-grid>article { min-width:0; text-align:center; }
+.course-image-preview { width:100%; height:170px; padding:10px; border:0; overflow:hidden; background:#eef1e7; border-radius:12px; }
+.course-image-preview img { width:100%; height:100%; object-fit:contain; }
+.course-image-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-top:7px; }
+.course-image-actions button { font:inherit; font-size:12px; }
+.image-backdrop { position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center; padding:24px; background:rgba(25,40,31,.85); }
+.image-close { position:absolute; right:20px; top:20px; color:white; background:transparent; border:0; padding:12px; cursor:pointer; }
+.image-backdrop>img { max-width:90vw; max-height:85vh; object-fit:contain; }
+</style>

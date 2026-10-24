@@ -2,6 +2,7 @@
 import { coursePrompt, recognitionPrompt, vocabularyPrompt } from "../../../../packages/learning-modes/seven-step/prompts";
 import {
   computed,
+  inject,
   nextTick,
   onBeforeUnmount,
   onScopeDispose,
@@ -43,13 +44,16 @@ import CourseReview from "./CourseReview.vue";
 import CourseModeNotice from "../../../components/CourseModeNotice.vue";
 import { useModeSelection } from "../../../platform/mode-selection";
 import { sevenStepCourseAccess } from "../course-access";
+import { workspaceKey } from "../../../application/workspace";
 const props = defineProps<{
   app: UnwrapNestedRefs<LearningUI>;
   active: boolean;
   authorize: (label: string, action: () => Promise<void>) => Promise<void>;
+  embedded?: boolean;
 }>();
 const emit = defineEmits<{ settings: [] }>();
 const modeSelection = useModeSelection();
+const workspace = inject(workspaceKey, undefined);
 const requests = createContentRequests();
 const contentRequest = requests.request;
 const courseId = defineModel<string | null>("courseId", { required: true });
@@ -81,6 +85,8 @@ const job = ref(false),
 const recognizedMetadata = ref({ title: "", subtitle: "" });
 const vocabularyList = ref<InstanceType<typeof VocabularyList> | null>(null);
 const checkedOriginal = ref(false);
+watch(error, value => { if (workspace?.visible.value && props.active && value) workspace.notify(value, "error"); });
+watch(message, value => { if (workspace?.visible.value && props.active && value) workspace.notify(value); });
 function invalidateFrom(step: "source" | "vocabulary") {
   if (record.value.status === "published") return;
   const affected = draftSteps.indexOf(record.value.status) > draftSteps.indexOf(step);
@@ -143,8 +149,8 @@ const published = computed(() => record.value.status === "published");
 let preparedForLeave = false;
 let draftRevision = 0;
 watch(record, () => { preparedForLeave = false; draftRevision++; }, { deep: true, flush: "sync" });
-const modeAccess = computed(() => sevenStepCourseAccess(modeSelection.activeModeId.value, record.value));
-const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === modeSelection.activeModeId.value)?.title ?? "当前模式");
+const modeAccess = computed(() => sevenStepCourseAccess(workspace?.modeId.value ?? modeSelection.activeModeId.value, record.value));
+const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === (workspace?.modeId.value ?? modeSelection.activeModeId.value))?.title ?? "当前模式");
 async function prepareDeparture() {
   if (job.value || removing.value || speech.courseGenerating.value)
     throw Error("请先完成当前课程处理或暂停音频生成，再离开课程编辑。");
@@ -157,7 +163,7 @@ async function prepareDeparture() {
   } while (savedRevision !== draftRevision);
   preparedForLeave = true;
 }
-onScopeDispose(modeSelection.beforeSwitch(prepareDeparture));
+if (!workspace) onScopeDispose(modeSelection.beforeSwitch(prepareDeparture));
 async function prepareLeave(): Promise<boolean> {
   try { await prepareDeparture(); return true; }
   catch (failure) {
@@ -257,6 +263,7 @@ async function create() {
   });
 }
 async function handleBack(): Promise<boolean> {
+  if (props.embedded) return false;
   if (!courseId.value) {
     if (swipeId.value) {
       swipeId.value = null;
@@ -279,7 +286,7 @@ async function handleBack(): Promise<boolean> {
   window.scrollTo({ top: 0, behavior: "instant" });
   return true;
 }
-defineExpose({ handleBack, prepareLeave });
+defineExpose({ handleBack, prepareLeave, get busy() { return job.value || removing.value || speech.courseGenerating.value; } });
 async function remove(id: string) {
   if (!canSave.value || removing.value || speech.courseGenerating.value) return;
   if (courseId.value === id && !(await persist())) return;
@@ -673,7 +680,7 @@ async function goToStep(step: DraftStep) {
         </article>
       </div>
     </section>
-    <div v-else class="course-detail-toolbar">
+    <div v-else-if="!embedded" class="course-detail-toolbar">
       <button
         class="text-button"
         :disabled="removing || app.busy"
@@ -690,13 +697,13 @@ async function goToStep(step: DraftStep) {
         删除课程
       </button>
     </div>
-    <p v-if="error" class="inline-note speech-error" role="alert">
+    <p v-if="error" class="inline-note speech-error" :role="workspace ? undefined : 'alert'">
       {{ error
       }}<button class="text-button" @click="emit('settings')">
         检查模型配置
       </button>
     </p>
-    <p v-if="message" class="inline-note" role="status">
+    <p v-if="message && !workspace" class="inline-note" role="status">
       {{ message
       }}<button
         v-if="
@@ -719,7 +726,7 @@ async function goToStep(step: DraftStep) {
       重试课程资源清理
     </button>
     <div v-if="courseId" class="course-detail-page">
-      <CourseModeNotice v-if="!modeAccess.canLearn" :title="record.title || '新建课程'" :mode-title="modeTitle" :status="modeAccess.status" parent @prepare="prepareModeContent" />
+      <CourseModeNotice v-if="!embedded && !modeAccess.canLearn" :title="record.title || '新建课程'" :mode-title="modeTitle" :status="modeAccess.status" parent @prepare="prepareModeContent" />
       <p v-if="job" class="inline-note" role="status">
         正在处理，请稍候。草稿已保存。<button
           class="text-button"
@@ -754,7 +761,16 @@ async function goToStep(step: DraftStep) {
           原文或词汇已修改，请重新确认并生成课程。
         </p>
         <fieldset class="speech-fields" :disabled="job">
-          <template v-if="currentStep === 'source'">
+          <template v-if="currentStep === 'source' && embedded">
+            <h2>核对课程教材</h2>
+            <p>{{ record.title }} · {{ record.subtitle }}</p>
+            <SourceImages :images="[...record.images, ...record.vocabularyImages]" />
+            <p style="white-space: pre-wrap">{{ record.sourceText }}</p>
+            <button type="button" class="text-button" @click="workspace?.editMaterial()">编辑共同教材</button>
+            <label class="checkbox-row"><input v-model="checkedOriginal" type="checkbox" /><span>已检查标题、教材或单元及原文内容、角色与顺序，确认可以用于学习。</span></label>
+            <button type="button" class="button primary" :disabled="!checkedOriginal || !record.title.trim() || !record.sourceText.trim()" @click="confirmSource">确认原文，整理重点词汇</button>
+          </template>
+          <template v-else-if="currentStep === 'source'">
             <h2>识别并确认原文</h2>
             <label for="course-title">课程标题</label
             ><input
@@ -1056,6 +1072,7 @@ async function goToStep(step: DraftStep) {
             >
           </div>
           <button
+            v-if="!embedded"
             class="button primary compact"
             :disabled="
               !app.learner ||
@@ -1076,7 +1093,7 @@ async function goToStep(step: DraftStep) {
             }}
           </button>
           <p class="field-help">
-            浏览和准备音频保持孩子当前课程；点击指定学习课程后，首页才切换，原课程进度保留。
+            {{ embedded ? '本模式内容已发布。孩子在课程列表选择本课后即可学习；当前学习模式由统一设置管理。' : '浏览和准备音频保持孩子当前课程；点击指定学习课程后，首页才切换，原课程进度保留。' }}
           </p>
         </section>
         <CourseAudioPanel

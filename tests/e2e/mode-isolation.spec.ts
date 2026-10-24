@@ -12,49 +12,26 @@ async function appearance(page: Page, selector: string) {
 }
 
 for (const width of [390, 1280]) {
-  test(`flex-gap fallback preserves spacing and stays inside the mode (${width}px)`, async ({ page }) => {
+  test(`application flex-gap fallback stays inside its frame (${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
-    // Emulate the old WebView's feature-probe result, then remove native gap
-    // so measured spacing must come from the real fallback stylesheet.
     await page.addInitScript(() => {
       const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!;
-      Object.defineProperty(Element.prototype, "scrollHeight", {
-        ...descriptor,
-        get() {
-          if (this instanceof HTMLElement && this.style.rowGap === "1px" && this.style.top === "-9999px") return 0;
-          return descriptor.get!.call(this);
-        },
-      });
+      Object.defineProperty(Element.prototype, "scrollHeight", { ...descriptor, get() {
+        if (this instanceof HTMLElement && this.style.rowGap === "1px" && this.style.top === "-9999px") return 0;
+        return descriptor.get!.call(this);
+      }});
     });
     await page.goto("/");
-    await page.getByLabel("先给自己起个昵称").fill("间距测试");
-    await page.getByRole("button", { name: "建立我的小窝" }).click();
-    await expect(page.locator(".profile-chip")).toBeVisible();
-    await page.addStyleTag({ content: ".seven-step-mode .brand, .seven-step-mode .topbar-actions, .seven-step-mode .profile-chip { gap: 0 !important; }" });
-    await expect(page.locator(".brand-symbol")).toHaveCSS("margin-right", "11px");
-    await expect(page.locator(".avatar-mini")).toHaveCSS("margin-right", "7px");
-    await expect(page.locator(".topbar-actions > .icon-button")).toHaveCSS("margin-left", "12px");
-    await expect(page.locator(".seven-step-mode")).toHaveClass(/no-flex-gap/);
+    await expect(page.getByLabel("先给自己起个昵称")).toBeVisible();
+    await expect(page.locator(".lingonest-app")).toHaveClass(/no-flex-gap/);
+    await expect(page.locator(".application-logo")).toHaveCSS("margin-right", "10px");
     await expect(page.locator("html")).not.toHaveClass(/no-flex-gap/);
-    const brandGap = await page.locator(".brand").evaluate((brand) => {
-      const [button, label] = [...brand.children];
-      return label!.getBoundingClientRect().left - button!.getBoundingClientRect().right;
-    });
-    expect(brandGap).toBeCloseTo(11);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.evaluate(() => {
-      const other = document.createElement("section");
-      other.id = "other-mode";
-      other.innerHTML = '<button class="brand-symbol">Other mode</button>';
-      document.body.append(other);
+      const other = document.createElement("section"); other.id = "other-mode";
+      other.innerHTML = '<span class="application-logo">Other</span>'; document.body.append(other);
     });
-    await expect(page.locator("#other-mode .brand-symbol")).toHaveCSS("margin-right", "0px");
-    await page.evaluate(() => {
-      const host = document.getElementById("app")! as HTMLElement & { __vue_app__: { unmount(): void } };
-      host.__vue_app__.unmount();
-      host.append(document.getElementById("other-mode")!);
-    });
-    await expect(page.locator("html")).not.toHaveClass(/no-flex-gap/);
-    await expect(page.locator("#other-mode .brand-symbol")).toHaveCSS("margin-right", "0px");
+    await expect(page.locator("#other-mode .application-logo")).toHaveCSS("margin-right", "0px");
   });
 
   test(`seven-step theme stays inside its root before and after unmount (${width}px)`, async ({ page }) => {
@@ -77,9 +54,9 @@ for (const width of [390, 1280]) {
     await expect(page.getByLabel("先给自己起个昵称")).toBeVisible();
     await expect(page.locator(".seven-step-mode")).not.toHaveClass(/no-flex-gap/);
     await expect(page.locator("html")).not.toHaveClass(/no-flex-gap/);
-    await expect(page.locator(".brand-symbol")).toHaveCSS("margin-right", "0px");
+    await expect(page.locator(".application-logo")).toHaveCSS("margin-right", "0px");
     await expect(page.locator(".seven-step-mode")).toHaveCSS("background-color", "rgb(247, 246, 240)");
-    await expect(page.locator(".seven-step-mode input").first()).toHaveCSS("border-radius", "12px");
+    await expect(page.getByLabel("先给自己起个昵称")).toHaveCSS("border-radius", "10px");
     expect(await Promise.all(selectors.map((selector) => appearance(page, selector)))).toEqual(baseline);
 
     // Inspect nested media rules as well; keyframes use a private name too.

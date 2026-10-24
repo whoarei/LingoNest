@@ -1,80 +1,28 @@
 <script setup lang="ts">
 import "./style.css";
-import {
-  computed,
-  nextTick,
-  onMounted,
-  onBeforeUnmount,
-  onScopeDispose,
-  reactive,
-  ref,
-  watch,
-} from "vue";
-import { isAndroid, native } from "../../native";
+import { computed, nextTick, onMounted, onScopeDispose, reactive, ref, watch } from "vue";
 import { useLearning } from "./useLearning";
 import type { SkillState } from "../../../packages/learning-modes/seven-step/model";
 import type { LearningUI } from "./domain";
 import Icon from "../../components/AppIcon.vue";
-import SpeechSettings from "../../components/SpeechSettings.vue";
 import ParentSpace from "./components/ParentSpace.vue";
-import ContentSettings from "../../components/ContentSettings.vue";
+import CourseManager from "./components/CourseManager.vue";
 import SourceImages from "../../components/SourceImages.vue";
 import CourseModeNotice from "../../components/CourseModeNotice.vue";
-import ParentModeSettings from "../../components/ParentModeSettings.vue";
 import { useModeSelection } from "../../platform/mode-selection";
-import {
-  abilityLabels,
-  statusLabels,
-  parentNav,
-  type ParentTab,
-} from "../../../packages/learning-modes/seven-step/reporting";
-
+import { useWorkspace } from "../../application/workspace";
+import { native } from "../../native";
+import { abilityLabels, statusLabels, type ParentTab } from "../../../packages/learning-modes/seven-step/reporting";
+const workspace = useWorkspace();
 const modeSelection = useModeSelection();
-const app = reactive(useLearning({ activeModeId: modeSelection.activeModeId, modeChanging: modeSelection.busy }));
-const modeTitle = computed(() => modeSelection.modes.find(mode => mode.id === modeSelection.activeModeId.value)?.title ?? "当前模式");
-onScopeDispose(modeSelection.beforeSwitch(() => app.prepareModeChange()));
-const noFlexGap = ref(false);
-const nickname = ref("");
-const block = ref<"A" | "B" | "C">("A");
-const checkedTranscript = ref(false);
-const imagePreview = ref<string | null>(null);
-const referenceRevealed = ref(false);
-const parentMode = ref(false);
-const parentTab = ref<ParentTab>("overview");
+const scopedCourse = computed(() => workspace.surface.value === "report" || workspace.surface.value === "confirm" ? workspace.courseId.value : null);
+const app = reactive(useLearning({ activeModeId: modeSelection.activeModeId, modeChanging: modeSelection.busy, courseId: scopedCourse }));
+const modeTitle = "七步学习";
+const noFlexGap = ref(false), block = ref<"A" | "B" | "C">("A"), checkedTranscript = ref(false);
+const imagePreview = ref<string | null>(null), referenceRevealed = ref(false);
+const parentTab = ref<"report" | "confirm">("report");
 const managedCourseId = ref<string | null>(null);
-const parentSpace = ref<{ handleBack(): Promise<boolean>; prepareLeave(): Promise<boolean> } | null>(null);
-const settingsOrigin = ref<LearningUI["view"]["value"]>("home");
-let preparingParentDeparture = false;
-let handlingBack = false;
-let disposed = false;
-let backSubscription: { remove(): Promise<void> } | undefined;
-onMounted(() => {
-  if (isAndroid)
-    void native
-      .addListener("backButton", () => {
-        void handleBack().catch(() => {
-          app.error = "返回未完成，请重试。";
-        });
-      })
-      .then((handle) => {
-        if (disposed) void handle.remove();
-        else backSubscription = handle;
-      });
-});
-onBeforeUnmount(() => {
-  disposed = true;
-  void backSubscription?.remove();
-});
-const learningScroll = ref(0);
-const exitPractice = ref(false);
-const exitDestination = ref<"home" | "parent">("home");
-const learningView = ref<LearningUI["view"]["value"]>("home");
-const nav = [
-  { id: "home", label: "小窝", icon: "home" },
-  { id: "lesson", label: "课文", icon: "book" },
-  { id: "review", label: "复习", icon: "repeat" },
-  { id: "progress", label: "成长", icon: "chart" },
-] as const;
+const courseManager = ref<{ readonly busy: boolean; handleBack(): Promise<boolean>; prepareLeave(): Promise<boolean> } | null>(null);
 const blockNames = {
   A: "篮球队的邀请",
   B: "聊聊喜欢的运动",
@@ -85,9 +33,10 @@ const turns = computed(() =>
 );
 const nextStage = computed(
   () =>
-    app.stages.find((stage) => stage.available && !stage.verified) ||
-    app.stages.find((stage) => stage.available),
+    app.stages.find((stage) => stage.available && !stage.verified),
 );
+watch(() => app.error, value => { if (workspace.visible.value && value) workspace.notify(value, "error"); });
+watch(() => app.notice, value => { if (workspace.visible.value && value) workspace.notify(value); });
 const completedPercent = computed(() =>
   Math.round(
     (app.stats.completedStages / Math.max(app.stages.length, 1)) * 100,
@@ -95,6 +44,8 @@ const completedPercent = computed(() =>
 );
 const exercise = computed(() => app.currentExercise);
 const isLast = computed(() => app.practice.position + 1 >= app.practice.total);
+const needsIndependent = computed(() => app.practice.assisted > 0 && (app.practice.stageId === "S4" || app.practice.stageId === "S5"));
+const independentMode = computed(() => app.practice.independent && !app.hintShown);
 const canSubmit = computed(() => {
   if (!exercise.value || app.busy || app.recording || app.feedback)
     return false;
@@ -171,112 +122,53 @@ watch(
     checkedTranscript.value = false;
   },
 );
-async function prepareParentDeparture(): Promise<boolean> {
-  if (preparingParentDeparture || app.busy || modeSelection.busy.value) return false;
-  preparingParentDeparture = true;
-  try { return await parentSpace.value?.prepareLeave() ?? true; }
-  finally { preparingParentDeparture = false; }
-}
 async function navigate(view: LearningUI["view"]["value"]) {
-  if (preparingParentDeparture || modeSelection.busy.value) return;
-  if (parentMode.value && view !== "parent" && view !== "settings" && !(await prepareParentDeparture())) return;
-  if (view === "settings" && app.view !== "settings")
-    settingsOrigin.value = app.view;
-  const wasParentMode = parentMode.value;
-  if (view === "parent" && !parentMode.value) {
-    learningView.value = ["home", "lesson", "review", "progress"].includes(
-      app.view,
-    )
-      ? app.view
-      : "home";
-    learningScroll.value = app.view === "practice" ? 0 : window.scrollY;
-  }
-  if (view !== "settings") parentMode.value = view === "parent";
-  void app.stopSpeech();
-  app.refreshLearning();
-  if (view === "lesson") {
-    await app.openLesson();
-    if (app.view !== "lesson") {
-      parentMode.value = wasParentMode;
-      return;
-    }
-  } else app.view = view;
-  await nextTick();
-  window.scrollTo({ top: 0, behavior: "instant" });
+  if (view === "parent") { await workspace.openParent(); return; }
+  if (view === "settings") { await workspace.openSettings(); return; }
+  if (app.busy) return;
+  await app.stopSpeech(); app.refreshLearning();
+  if (view === "lesson") await app.openLesson(); else app.view = view;
+  await nextTick(); window.scrollTo({ top: 0, behavior: "instant" });
 }
-async function selectParentTab(tab: ParentTab): Promise<boolean> {
-  if (preparingParentDeparture || app.busy || modeSelection.busy.value) return false;
-  if (parentMode.value && parentTab.value === "course" && !(await prepareParentDeparture())) return false;
-  managedCourseId.value = null;
-  parentTab.value = tab;
-  await navigate("parent");
-  return true;
+async function selectParentTab(tab: ParentTab) {
+  await workspace.openParent(tab === "confirm" ? "confirm" : tab === "report" ? "report" : undefined);
 }
-async function prepareCourseMode() {
-  if (!(await selectParentTab("course"))) return;
-  managedCourseId.value = app.course.id;
+async function prepareCourseMode() { await workspace.openParent("authoring"); }
+async function openMicrophoneSettings() {
+  await workspace.authorize("开启麦克风权限", async () => {
+    await app.prepareModeChange();
+    await native.openAppSettings();
+  });
 }
-async function switchSpace() {
-  if (app.view === "settings" && parentMode.value) {
-    await returnFromSettings();
-  } else if (app.view === "practice") {
-    exitDestination.value = "parent";
-    exitPractice.value = true;
-  } else if (parentMode.value) {
-    await navigate(learningView.value);
-    window.scrollTo({ top: learningScroll.value, behavior: "instant" });
-  } else selectParentTab("overview");
+async function exit() {
+  if (app.recording) await app.toggleRecording();
+  await prepareLeave(); await navigate("home");
 }
-async function returnFromSettings() {
-  await navigate(parentMode.value ? "parent" : settingsOrigin.value);
+async function prepareLeave() {
+  if (workspace.surface.value === "authoring" && !(await courseManager.value?.prepareLeave() ?? true))
+    throw Error("课程草稿保存失败，请检查页面提示后重试。");
+  await app.prepareModeChange();
 }
 async function handleBack() {
-  if (handlingBack || preparingParentDeparture || modeSelection.busy.value || app.busy || !app.ready) return;
-  handlingBack = true;
-  try {
-    const closeImage = document.querySelector<HTMLButtonElement>(
-      ".image-backdrop .image-close",
-    );
-    if (closeImage) {
-      closeImage.click();
-      return;
-    }
-    if (imagePreview.value) {
-      imagePreview.value = null;
-      return;
-    }
-    if (exitPractice.value) {
-      exitPractice.value = false;
-      return;
-    }
-    if (app.view === "settings") {
-      await returnFromSettings();
-      return;
-    }
-    if (app.view === "practice") {
-      exitDestination.value = "home";
-      exitPractice.value = true;
-      return;
-    }
-    if (parentMode.value) {
-      if (await parentSpace.value?.handleBack()) return;
-      if (parentTab.value !== "overview") await selectParentTab("overview");
-      else await switchSpace();
-      return;
-    }
-    if (app.view !== "home") await navigate("home");
-    else if (isAndroid) await native.exitApp();
-  } finally {
-    handlingBack = false;
-  }
+  if (imagePreview.value) { imagePreview.value = null; return true; }
+  if (workspace.surface.value === "authoring") return await courseManager.value?.handleBack() ?? false;
+  if (workspace.surface.value === "learning" && ["lesson", "review", "progress"].includes(app.view)) { await navigate("home"); return true; }
+  return false;
 }
-async function createProfile() {
-  if (!nickname.value.trim() || app.busy) return;
-  await app.addLearner(nickname.value.trim());
-  if (!app.error) {
-    nickname.value = "";
-  }
-}
+watch([workspace.surface, workspace.courseId, workspace.visible, workspace.activation, () => app.ready], async () => {
+  if (!app.ready || !workspace.visible.value) return;
+  if (workspace.surface.value === "authoring") managedCourseId.value = workspace.courseId.value;
+  else if (workspace.surface.value === "report" || workspace.surface.value === "confirm") parentTab.value = workspace.surface.value;
+  else if (app.view !== "practice") app.view = "home";
+}, { immediate: true });
+onScopeDispose(workspace.connect({
+  get ready() { return app.ready; }, get busy() { return app.busy || !!courseManager.value?.busy; },
+  get focused() { return workspace.surface.value === "learning" && app.view === "practice"; },
+  get completed() { return app.view === "practice" && app.practice.finished; },
+  prepareLeave, handleBack, exit,
+  async refresh() { app.refreshLearning(); await app.speech.refreshCourse().catch(failure => workspace.notify(failure instanceof Error ? failure.message : String(failure), "error")); },
+  async readMaterial() { await app.openLesson(); if (app.error) throw Error(app.error); },
+}));
 function chooseOption(id: string) {
   if (app.feedback) return;
   if ((exercise.value?.correctOptionIds?.length || 0) > 1)
@@ -296,12 +188,6 @@ function removeToken(id: string) {
 async function showReference() {
   await app.revealReference();
   if (!app.error && app.hintShown) referenceRevealed.value = true;
-}
-async function leavePractice() {
-  if (app.recording) await app.toggleRecording();
-  exitPractice.value = false;
-  navigate(exitDestination.value);
-  exitDestination.value = "home";
 }
 function skillTitle(skill: SkillState) {
   return (
@@ -323,61 +209,7 @@ function shortDate(value: string) {
 </script>
 
 <template>
-  <div class="seven-step-mode app-shell" :class="{ 'no-flex-gap': noFlexGap }">
-    <header class="topbar">
-      <div class="brand">
-        <button
-          class="brand-symbol"
-          :aria-label="parentMode ? '切换到学习空间' : '切换到家长空间'"
-          :title="parentMode ? '切换到学习空间' : '切换到家长空间'"
-          :disabled="!app.ready || app.busy"
-          @click="switchSpace"
-        >
-          <Icon :name="parentMode ? 'shield' : 'leaf'" :size="24" /></button
-        ><span
-          ><strong>LingoNest<span class="brand-dot">.</span></strong
-          ><small>{{ parentMode ? "家长空间" : "英语小窝" }}</small></span
-        >
-      </div>
-      <div class="topbar-actions">
-        <button
-          v-if="parentMode && app.learner"
-          class="profile-chip parent-profile-chip"
-          aria-label="管理孩子档案"
-          @click="selectParentTab('profiles')"
-          :disabled="app.busy"
-        >
-          <span class="avatar-mini">{{ app.learner.nickname.slice(0, 1) }}</span
-          >{{ app.learner.nickname }}
-        </button>
-        <span v-else-if="app.learner" class="profile-chip"
-          ><span class="avatar-mini">{{
-            app.learner.nickname.slice(0, 1)
-          }}</span
-          >{{ app.learner.nickname }}</span
-        ><button
-          class="icon-button"
-          aria-label="设置"
-          :disabled="app.view === 'practice'"
-          @click="navigate('settings')"
-        >
-          <Icon name="settings" />
-        </button>
-      </div>
-    </header>
-    <div v-if="app.error" class="message-bar error-bar" role="alert">
-      <Icon name="light" /><span>{{ app.error }}</span
-      ><button
-        class="icon-button"
-        aria-label="关闭错误提示"
-        @click="app.dismissError"
-      >
-        <Icon name="close" :size="17" />
-      </button>
-    </div>
-    <div v-if="app.notice" class="message-bar notice-bar" role="status">
-      <Icon name="check" :size="18" /><span>{{ app.notice }}</span>
-    </div>
+  <div class="seven-step-mode" :class="{ 'no-flex-gap': noFlexGap }">
     <div v-if="app.busy" class="busy-indicator" role="status">
       <span class="spinner" />正在保存，请稍候…
     </div>
@@ -411,79 +243,28 @@ function shortDate(value: string) {
         暂停
       </button>
     </div>
-    <ParentSpace
-      v-if="app.ready && parentMode"
-      ref="parentSpace"
-      v-show="app.view === 'parent'"
-      :tab="parentTab"
-      @update:tab="selectParentTab"
-      v-model:course-id="managedCourseId"
-      :app="app"
-      :active="app.view === 'parent'"
-      @settings="navigate('settings')"
-      @image="imagePreview = $event"
-    />
     <main v-if="!app.ready" class="loading-page">
       <span class="spinner large" />
       <h1>正在整理你的小窝</h1>
       <p>课文和学习记录马上就好。</p>
     </main>
-    <main
-      v-else-if="
-        !app.learner && app.view !== 'parent' && app.view !== 'settings'
-      "
-      class="welcome-page"
-    >
-      <div class="welcome-art">
-        <Icon name="book" :size="68" /><span class="tiny-spark">✦</span>
-      </div>
-      <span class="eyebrow">A LITTLE EVERY DAY</span>
-      <h1>让英语，在小窝里<br />慢慢长大。</h1>
-      <p>读懂一段对话，试着说出来，<br />再把学会的留在记忆里。</p>
-      <form class="onboarding-form" @submit.prevent="createProfile">
-        <label for="first-nickname">先给自己起个昵称</label
-        ><input
-          id="first-nickname"
-          v-model="nickname"
-          maxlength="16"
-          placeholder="例如：小树"
-          autocomplete="off"
-          required
-        /><button
-          class="button primary full-width"
-          :disabled="!nickname.trim() || app.busy"
-        >
-          建立我的小窝 <Icon name="arrow" />
-        </button>
-      </form>
-      <p class="quiet-note">
-        <Icon name="shield" :size="15" />不需要真实姓名，学习记录保存在本机。
-      </p>
+    <main v-else-if="workspace.surface.value === 'authoring'" class="page parent-page">
+      <h1>七步学习内容</h1>
+      <CourseManager :key="workspace.activation.value + ':' + managedCourseId" ref="courseManager" v-model:course-id="managedCourseId" :app="app" :active="workspace.visible.value" :authorize="workspace.authorize" embedded @settings="workspace.openSettings" />
     </main>
-
+    <ParentSpace v-else-if="workspace.surface.value === 'report' || workspace.surface.value === 'confirm'" v-model:tab="parentTab" :app="app" :active="workspace.visible.value" />
     <main v-else-if="app.learner && !app.courseMode.canLearn && app.view !== 'parent' && app.view !== 'settings'" class="page">
       <CourseModeNotice :title="app.course.title" :mode-title="modeTitle" :status="app.courseMode.status" @prepare="prepareCourseMode" />
     </main>
     <main v-else-if="app.view === 'home' && app.learner" class="page home-page">
-      <section class="page-intro">
-        <div>
-          <span class="eyebrow">YOUR LITTLE LEARNING NEST</span>
-          <h1>
-            你好，{{ app.learner.nickname }}<span class="greeting-leaf">✦</span>
-          </h1>
-          <p>每天一小步，英语更熟悉一点。</p>
-        </div>
-        <span class="today-badge"
-          ><Icon name="leaf" :size="16" />慢慢来，也很棒</span
-        >
-      </section>
+      <h2 class="home-greeting">你好，{{ app.learner.nickname }}<small>今天，从这里开始。</small></h2>
       <section class="hero-card">
         <div class="hero-copy">
           <span class="light-eyebrow"
-            >本次学习 · {{ app.course.subtitle }}</span
+            >今天的小目标</span
           >
-          <h2>{{ app.course.title }}</h2>
-          <p>{{ app.course.subtitle }}</p>
+          <h2>{{ !app.confirmed ? '先认识这篇课文' : nextStage ? nextStage.title : '再见一面，复习学过的表达' }}</h2>
+          <p>{{ nextStage?.subtitle ?? '每次往前走一小步，想休息时可以保存进度。' }}</p>
           <button
             v-if="!app.confirmed"
             class="button cream"
@@ -497,7 +278,7 @@ function shortDate(value: string) {
             @click="app.startStage(nextStage.id)"
           >
             继续{{ nextStage.title }} <Icon name="arrow" /></button
-          ><span class="hero-caption">七步学习 · 从读懂，到会用</span>
+          ><button v-else class="button cream" :disabled="app.busy" @click="navigate('review')">本课练习已完成，去复习 <Icon name="arrow" /></button><span class="hero-caption">七步学习 · 从读懂，到会用</span>
         </div>
         <svg
           class="hero-illustration"
@@ -530,34 +311,10 @@ function shortDate(value: string) {
           <circle cx="107" cy="38" r="3" fill="#F5DFC0" />
         </svg>
       </section>
-      <section class="quick-stats" aria-label="今日学习概况">
-        <div>
-          <span class="stat-icon peach"><Icon name="check" /></span
-          ><span
-            ><strong>{{ app.stats.todayAttempts }}</strong
-            ><small>今天的练习</small></span
-          >
-        </div>
-        <div>
-          <span class="stat-icon sage"><Icon name="repeat" /></span
-          ><span
-            ><strong>{{ app.stats.dueCount }}</strong
-            ><small>待复习目标</small></span
-          >
-        </div>
-        <div>
-          <span class="stat-icon sand"><Icon name="mic" /></span
-          ><span
-            ><strong>{{ app.stats.pendingReviews }}</strong
-            ><small>口语待确认</small></span
-          >
-        </div>
-      </section>
       <div class="home-columns">
         <section class="section-panel">
           <div class="section-heading">
             <div>
-              <span class="eyebrow">YOUR LEARNING PATH</span>
               <h2>这节课，七步走</h2>
             </div>
             <span class="muted small"
@@ -572,6 +329,7 @@ function shortDate(value: string) {
             <button
               v-for="(stage, index) in app.stages"
               :key="stage.id"
+              :aria-current="stage.id === nextStage?.id ? 'step' : undefined"
               class="stage-row"
               :class="{ 'stage-locked': !stage.available || !app.confirmed }"
               :disabled="app.busy || !stage.available || !app.confirmed"
@@ -621,6 +379,7 @@ function shortDate(value: string) {
               <Icon name="shield" :size="17" />给陪伴学习的大人
             </div>
             <p>练习完成和真正掌握分别记录。口语要听过录音，再由家长确认。</p>
+            <p v-if="app.stats.pendingReviews">还有 {{ app.stats.pendingReviews }} 条录音可以请家长听听。<button class="text-button" @click="selectParentTab('confirm')">请家长听录音</button></p>
             <button class="text-button" @click="selectParentTab('overview')">
               进入家长空间 <Icon name="arrow" :size="17" />
             </button>
@@ -733,9 +492,7 @@ function shortDate(value: string) {
 
     <main v-else-if="app.view === 'practice'" class="page practice-page">
       <div class="practice-top">
-        <button class="text-button muted" @click="exitPractice = true">
-          <Icon name="close" :size="19" />暂时退出</button
-        ><span>{{ app.practice.label }}</span
+        <span>{{ app.practice.label }}</span
         ><span class="practice-counter"
           >{{ Math.min(app.practice.position + 1, app.practice.total) }} /
           {{ app.practice.total }}</span
@@ -752,19 +509,20 @@ function shortDate(value: string) {
         <span class="completion-symbol"><Icon name="check" :size="36" /></span
         ><span class="eyebrow">ONE MORE LITTLE STEP</span>
         <h1>这轮练习，收好了。</h1>
-        <p>
-          已经提交的作答保存在小窝里。<br />继续看看哪些已验证，哪些还值得再练习。
-        </p>
-        <p v-if="app.stats.pendingReviews" class="inline-note">
-          有 {{ app.stats.pendingReviews }} 条录音等待家长确认。
-        </p>
+        <p>这轮练过：{{ app.practice.label }}。</p>
+        <p v-if="needsIndependent">刚才借助示范完成了练习。准备好后独立试一次，再请家长听听；刚才的练习也会保留。</p>
+        <p v-else-if="app.practice.pending">录音已保存。请家长听一听，再一起决定下一步。</p>
+        <p v-else-if="nextStage">接下来：{{ nextStage.title }}。也可以先休息，进度已经保存。</p>
+        <p v-else>这课的七步都练过了，稍后再来复习吧。</p>
         <div class="button-group">
-          <button class="button primary" @click="navigate('home')">
+          <button v-if="needsIndependent && app.practice.stageId" class="button primary" :disabled="app.busy" @click="app.startIndependentStage(app.practice.stageId)">独立再试一次 <Icon name="arrow" :size="18" /></button>
+          <button v-else-if="app.practice.pending" class="button primary" @click="selectParentTab('confirm')">请家长确认录音</button>
+          <button v-else-if="nextStage" class="button primary" :disabled="app.busy" @click="app.startStage(nextStage.id)">继续{{ nextStage.title }} <Icon name="arrow" :size="18" /></button>
+          <button class="button secondary" @click="navigate('home')">
             回到学习路线 <Icon name="arrow" :size="18" /></button
-          ><button class="button secondary" @click="navigate('progress')">
-            看看我的成长
-          </button>
+          >
         </div>
+        <details class="round-details"><summary>查看本轮记录</summary><p>已完成 {{ app.practice.total }} 题 · 本次通过 {{ app.practice.passed }} 题 · 待确认 {{ app.practice.pending }} 题 · 提示练习 {{ app.practice.assisted }} 题。</p><p>学习记录中可以查看具体作答和确认情况。</p><button v-if="needsIndependent && app.practice.pending" class="text-button" @click="selectParentTab('confirm')">请家长回听示范练习</button><button class="text-button" @click="navigate('progress')">看看我的成长</button></details>
       </section>
       <form
         v-else-if="exercise"
@@ -797,7 +555,7 @@ function shortDate(value: string) {
           {{ exercise.prompt }}
         </p>
         <button
-          v-if="exercise.speakText && exercise.stageId !== 'S5'"
+          v-if="exercise.speakText && exercise.stageId !== 'S5' && !independentMode"
           type="button"
           class="audio-prompt"
           :disabled="app.recording || app.busy || !!app.feedback"
@@ -811,6 +569,9 @@ function shortDate(value: string) {
             ><small>{{ app.speech.label }}</small></span
           >
         </button>
+        <p v-if="independentMode && !app.feedback" class="oral-flow-note">独立尝试：{{ exercise.stageId === 'S4' ? '看着原文，自己读完整段。' : '合上原文，试着回忆完整表达。' }}录好后请家长听一听。</p>
+        <button v-if="independentMode && exercise.speakText && exercise.stageId === 'S4' && !app.feedback" type="button" class="text-button" :disabled="app.busy || app.recording" @click="app.speak(exercise.speakText)">需要帮助？听示范练习</button>
+        <p v-else-if="exercise.stageId === 'S4' && !app.feedback" class="oral-flow-note">可以先听示范练一练。听过示范后，这轮作为练习保留；完成后可直接进入独立尝试。</p>
         <div v-if="exercise.kind === 'choice'" class="choice-options">
           <button
             v-for="(option, index) in exercise.options"
@@ -891,6 +652,7 @@ function shortDate(value: string) {
             <button
               type="button"
               class="record-button"
+              :aria-label="app.recording ? '结束录音' : '开始录音'"
               :class="{ recording: app.recording }"
               :disabled="app.busy || !!app.feedback"
               @click="app.toggleRecording"
@@ -917,6 +679,7 @@ function shortDate(value: string) {
               <Icon name="play" :size="17" />回听我的录音
             </button>
           </div>
+          <button v-if="app.microphoneDenied && !app.recording" type="button" class="button secondary" @click="openMicrophoneSettings">请家长开启麦克风权限</button>
         </div>
         <div v-else class="written-answer">
           <label for="exercise-answer">{{
@@ -951,10 +714,7 @@ function shortDate(value: string) {
           <p class="field-help">可以慢慢想，提交前都能修改。</p>
         </div>
         <div v-if="app.hintShown && !app.feedback" class="hint-box">
-          <Icon name="light" :size="18" /><span
-            >{{ exercise.hint
-            }}<small>用了提示，这次作为练习记录。</small></span
-          >
+          <Icon name="light" :size="18" /><span><template v-if="exercise.kind !== 'oral' || !oralReferenceVisible">{{ exercise.hint }}</template><small>先借助提示练熟，完成后再独立试一次。</small></span>
         </div>
         <div
           v-if="app.feedback"
@@ -1246,75 +1006,6 @@ function shortDate(value: string) {
       </section>
     </main>
 
-    <main v-else-if="app.view === 'settings'" class="page settings-page">
-      <section class="page-intro">
-        <div>
-          <span class="eyebrow">A SAFE LITTLE NEST</span>
-          <h1>小窝设置</h1>
-          <p>管理课程模式、语音、文字识别与课程生成模型。</p>
-        </div>
-        <button class="text-button" @click="returnFromSettings">
-          {{ parentMode ? "返回家长空间" : "返回学习空间" }}
-          <Icon name="arrow" :size="17" />
-        </button>
-      </section>
-      <section class="section-panel">
-        <div class="section-heading">
-          <h2>孩子档案</h2>
-          <button class="text-button" @click="selectParentTab('profiles')">
-            管理孩子档案 <Icon name="arrow" :size="17" />
-          </button>
-        </div>
-        <p class="field-help">在家长空间创建、切换和管理孩子的学习档案。</p>
-      </section>
-      <ParentModeSettings />
-      <SpeechSettings :speech="app.speech" />
-      <ContentSettings />
-      <section class="storage-note">
-        <Icon name="shield" :size="21" />
-        <div>
-          <strong>{{ app.storageLabel }}</strong>
-          <p>
-            朗读方式、模型、音色和语速可在此设置。录音只会在你点击开始后采集。
-          </p>
-        </div>
-      </section>
-    </main>
-
-    <nav
-      v-if="app.ready && parentMode"
-      class="bottom-nav"
-      aria-label="家长导航"
-    >
-      <button
-        v-for="item in parentNav"
-        :key="item.id"
-        :class="{ active: app.view === 'parent' && parentTab === item.id }"
-        :aria-current="
-          app.view === 'parent' && parentTab === item.id ? 'page' : undefined
-        "
-        @click="selectParentTab(item.id)"
-      >
-        <span><Icon :name="item.icon" :size="21" /></span>{{ item.label
-        }}<i v-if="item.id === 'confirm' && app.pending.length" />
-      </button>
-    </nav>
-    <nav
-      v-else-if="app.ready && app.learner && app.view !== 'practice'"
-      class="bottom-nav"
-      aria-label="主导航"
-    >
-      <button
-        v-for="item in nav"
-        :key="item.id"
-        :class="{ active: app.view === item.id }"
-        :aria-current="app.view === item.id ? 'page' : undefined"
-        @click="navigate(item.id)"
-      >
-        <span><Icon :name="item.icon" :size="21" /></span>{{ item.label
-        }}<i v-if="item.id === 'review' && app.stats.dueCount" />
-      </button>
-    </nav>
     <div
       v-if="imagePreview"
       class="modal-backdrop image-backdrop"
@@ -1330,39 +1021,6 @@ function shortDate(value: string) {
       >
         <Icon name="close" :size="24" /></button
       ><img :src="imagePreview" alt="放大的课文原图，请对照核对文字" />
-    </div>
-    <div
-      v-if="exitPractice"
-      class="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="exit-title"
-    >
-      <section class="modal-card">
-        <span class="circle-icon"><Icon name="book" :size="26" /></span>
-        <h2 id="exit-title">先休息一下吗？</h2>
-        <p>已经提交的作答会保留。未提交的题目不会被记为完成或答错。</p>
-        <p v-if="app.recording" class="inline-note">退出时会先结束当前录音。</p>
-        <div class="modal-actions">
-          <button
-            class="button secondary"
-            @click="
-              exitPractice = false;
-              exitDestination = 'home';
-            "
-          >
-            继续练习</button
-          ><button
-            class="button primary"
-            :disabled="app.busy"
-            @click="leavePractice"
-          >
-            {{
-              exitDestination === "parent" ? "保存进度并切换" : "保存进度并退出"
-            }}
-          </button>
-        </div>
-      </section>
     </div>
   </div>
 </template>

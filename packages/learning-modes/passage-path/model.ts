@@ -49,7 +49,7 @@ export interface PassageDraft {
   questions: PassageQuestion[];
 }
 export interface PassageRules {
-  version: "1";
+  version: "1" | "2";
   questionCount: number;
   minQuestionCount: number;
   maxNewChunks: number;
@@ -81,6 +81,7 @@ export interface PassageReview {
   package: PassagePackage;
   reviewedQuestionIds: string[];
   sourceConfirmed: boolean;
+  returnedQuestionIds?: string[];
 }
 export type SelectionReason = "current" | "due" | "weak" | "repair";
 export interface SessionItem {
@@ -100,7 +101,7 @@ export interface PassageSession {
   kind: "path" | "replay" | "practice";
   status: "active" | "completed" | "retired";
   seed: number;
-  schedulerVersion: "1";
+  schedulerVersion: "1" | "2";
   startedAt: string;
   baseline: boolean;
   queue: SessionItem[];
@@ -108,6 +109,8 @@ export interface PassageSession {
   index: number;
   input: PassageResponse;
   assistedGoals: { courseId: string; revision: string; goalId: string }[];
+  /** Absent in legacy sessions: do not infer zero explicit requests from old facts. */
+  helpRequests?: { courseId: string; revision: string; questionId: string; kind: "source" | "hint"; afterAnswer?: boolean }[];
   feedbackAttemptId: string | null;
   /** Durable removal keeps other courses' facts and completed path positions. */
   purgedCourseIds?: string[];

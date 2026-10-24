@@ -50,12 +50,18 @@ export interface LearningUI {
   hintShown: Ref<boolean>;
   feedback: Ref<GradeResult | null>;
   recording: Ref<boolean>;
+  microphoneDenied: Ref<boolean>;
   recordingPath: Ref<string | null>;
   practice: ComputedRef<{
     position: number;
     total: number;
     label: string;
+    stageId: StageId | null;
+    independent: boolean;
     finished: boolean;
+    passed: number;
+    pending: number;
+    assisted: number;
   }>;
   stats: ComputedRef<{
     todayAttempts: number;
@@ -75,6 +81,7 @@ export interface LearningUI {
   selectLearner(id: string): Promise<void>;
   confirmCourse(): Promise<void>;
   startStage(id: StageId): void;
+  startIndependentStage(id: StageId): void;
   startReview(): void;
   openLesson(): Promise<void>;
   submit(): Promise<void>;

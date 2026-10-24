@@ -4,4 +4,5 @@ import { passagePathIdentity } from "../../../packages/learning-modes/passage-pa
 export const passagePathRegistration: TeachingModeRegistration<Component> = {
   identity: passagePathIdentity,
   loadExperience: async () => (await import("./Experience.vue")).default,
+  readOverview: async learnerId => (await import("./overview")).readOverview(learnerId),
 };

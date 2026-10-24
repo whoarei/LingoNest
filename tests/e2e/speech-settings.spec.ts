@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
+import { adult, navigate, parentSpace } from "./fixtures/application";
 
 async function fixture(page: Page) {
   await page.route("**/src/native.ts", async (route) =>
@@ -22,27 +23,18 @@ async function fixture(page: Page) {
   );
   await page.goto("/");
   await page.getByLabel("先给自己起个昵称").fill("语音测试");
-  await page.getByRole("button", { name: "建立我的小窝" }).click();
+  await page.getByRole("button", { name: "建立我的小窝" }).click(); await adult(page);
 }
 async function settings(page: Page) {
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  if (await page.getByRole("button", { name: "家长空间", exact: true }).isVisible()) await parentSpace(page);
+  await navigate(page, "设置");
 }
 async function courses(page: Page) {
-  // The registered mode experience is lazy-loaded after a WebView reload.
-  await expect(page.locator(".brand-symbol")).toBeVisible();
-  if (
-    await page
-      .getByRole("button", { name: "切换到家长空间", exact: true })
-      .count()
-  )
-    await page
-      .getByRole("button", { name: "切换到家长空间", exact: true })
-      .click();
-  await page.getByRole("button", { name: "课程", exact: true }).click();
-  await page
-    .locator(".course-list button")
-    .filter({ hasText: "一起加入运动队" })
-    .click();
+  await expect(page.locator(".application-brand")).toBeVisible();
+  if (await page.getByRole("button", { name: "家长空间", exact: true }).isVisible()) await parentSpace(page);
+  await navigate(page, "课程");
+  await page.locator(".frame-course-entry").filter({ hasText: "一起加入运动队" }).click();
+  await page.getByRole("button", { name: "资源", exact: true }).click();
 }
 async function generate(page: Page) {
   await page
@@ -126,9 +118,9 @@ test("explicit whole-course generation survives cache cleanup/key removal and le
   await courses(page);
   await expect(page.locator(".course-audio-panel")).toContainText("Milo");
   await page
-    .getByRole("button", { name: "切换到学习空间", exact: true })
+    .getByRole("button", { name: "返回学习空间", exact: true })
     .click();
-  await page.getByRole("button", { name: "课文", exact: true }).click();
+  await page.getByRole("button", { name: "先来认识这篇课文", exact: true }).click();
   await page
     .getByRole("button", { name: "朗读 Wang Tao 的这句话", exact: true })
     .first()
@@ -182,6 +174,6 @@ test("pause, reload and continue only missing course audio; delete resets course
     "placeholder",
     "已保存；留空保留当前 Key",
   );
-  await expect(page.locator(".profile-chip")).toContainText("语音测试");
+  await expect(page.locator(".frame-profile")).toContainText("语音测试");
   expect(await page.evaluate(() => (window as any).__speechRequests)).toBe(44);
 });

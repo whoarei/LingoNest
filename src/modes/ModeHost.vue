@@ -1,61 +1,72 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, onErrorCaptured, provide, watch, type Component } from "vue";
+import { computed, defineAsyncComponent, onErrorCaptured, provide, shallowRef, toRef, watch, type Component } from "vue";
 import { teachingModes } from "./registry";
-import { createModeSelection, modeSelectionKey } from "../platform/mode-selection";
-import ParentModeSettings from "../components/ParentModeSettings.vue";
-
-const selection = createModeSelection(teachingModes.modes, teachingModes.defaultModeId);
-provide(modeSelectionKey, selection);
-const failure = ref("");
+import { workspaceKey, type ModeSurface, type ModeWorkspace } from "../application/workspace";
+const props = defineProps<{
+    modeId: string;
+    surface: ModeSurface;
+    courseId: string | null;
+    visible: boolean;
+    parent: boolean;
+    activation: number;
+    authorize: (label: string, action: () => Promise<void>) => Promise<void>;
+    openParent: (surface?: ModeSurface) => Promise<void>;
+    openSettings: () => Promise<void>;
+    editMaterial: () => Promise<void>;
+    notify: (message: string, kind?: "error" | "status") => void;
+}>();
+const failure = shallowRef("");
+const adapter = shallowRef<ModeWorkspace | null>(null);
+const retry = shallowRef(0);
 const experiences = new Map<string, Component>();
-const registration = computed(() => teachingModes.modes.find(mode => mode.identity.id === selection.activeModeId.value));
 const Experience = computed(() => {
-  const mode = registration.value;
-  if (!mode) return null;
-  if (!experiences.has(mode.identity.id)) experiences.set(mode.identity.id, defineAsyncComponent(mode.loadExperience));
-  return experiences.get(mode.identity.id)!;
+    const mode = teachingModes.modes.find(mode => mode.identity.id === props.modeId);
+    if (!mode)
+        return null;
+    const key = mode.identity.id + ":" + retry.value;
+    if (!experiences.has(key))
+        experiences.set(key, defineAsyncComponent(mode.loadExperience));
+    return experiences.get(key)!;
 });
-watch(selection.activeModeId, () => { failure.value = ""; });
-void selection.load().catch(() => {});
-function reload() { window.location.reload(); }
-function blockWhileSwitching(event: Event) {
-  if (selection.busy.value) { event.preventDefault(); event.stopImmediatePropagation(); }
-}
-onErrorCaptured((error) => {
-  failure.value = error instanceof Error ? error.message : String(error);
-  return false;
+provide(workspaceKey, {
+    modeId: toRef(props, "modeId"), surface: toRef(props, "surface"), courseId: toRef(props, "courseId"),
+    visible: toRef(props, "visible"), parent: toRef(props, "parent"), activation: toRef(props, "activation"),
+    connect(value) {
+        adapter.value = value;
+        return () => {
+            if (adapter.value === value)
+                adapter.value = null;
+        };
+    },
+    authorize: props.authorize, openParent: props.openParent, openSettings: props.openSettings, editMaterial: props.editMaterial, notify: props.notify,
+});
+watch(() => props.modeId, () => { failure.value = ""; adapter.value = null; });
+onErrorCaptured(error => { failure.value = error instanceof Error ? error.message : String(error); return false; });
+function reload() { failure.value = ""; retry.value++; }
+defineExpose({
+    adapter,
+    async prepareLeave() {
+        if (!failure.value && props.visible && adapter.value?.ready)
+            await adapter.value.prepareLeave();
+    },
+    async handleBack() { return await adapter.value?.handleBack() ?? false; },
+    async exit() { await adapter.value?.exit(); },
+    async refresh() {
+        if (adapter.value?.ready)
+            await adapter.value.refresh();
+    },
 });
 </script>
 
 <template>
-  <main v-if="!selection.ready.value" class="mode-host-message" :role="selection.error.value ? 'alert' : 'status'">
-    <h1>{{ selection.error.value ? '无法读取课程模式设置' : '正在载入课程模式…' }}</h1>
-    <p>{{ selection.error.value }}</p>
-    <p>已有课程与学习记录保留。</p>
-    <button v-if="selection.error.value" @click="reload">重新打开</button>
-  </main>
-  <main v-else-if="failure || !Experience" class="mode-host-message">
-    <h1>学习模式暂时无法加载</h1>
-    <p role="alert">{{ failure || '当前课程模式尚未安装，请家长选择已安装的模式。' }}</p>
-    <p>已有课程与学习记录保留，不会自动切换到其他模式。</p>
-    <ParentModeSettings />
-    <button @click="reload">重新打开</button>
-  </main>
-  <div v-else :aria-busy="selection.busy.value" @click.capture="blockWhileSwitching" @keydown.capture="blockWhileSwitching">
-    <component :is="Experience" :key="selection.activeModeId.value" />
-  </div>
-  <div v-if="selection.busy.value" class="mode-host-busy" role="status">正在保存进度并切换模式…</div>
+  <section v-show="visible" class="mode-workspace" :data-mode-id="modeId" :aria-busy="adapter?.busy">
+    <main v-if="failure || !Experience" class="frame-page mode-host-message">
+      <h1>学习模式暂时无法加载</h1>
+      <p role="alert">{{ failure || '当前学习模式尚未接入，请家长在设置中选择可用模式。' }}</p>
+      <p>课程和学习记录保留，其他应用入口可以继续使用。</p>
+      <button v-if="Experience" class="frame-button" @click="reload">重新加载模式</button>
+      <button class="frame-button secondary" @click="openSettings">请家长处理</button>
+    </main>
+    <component v-else :is="Experience" :key="modeId + ':' + retry" />
+  </section>
 </template>
-
-<style scoped>
-main {
-  max-width: 42rem;
-  margin: 3rem auto;
-  padding: 1.5rem;
-  font: 16px/1.6 system-ui, sans-serif;
-}
-.mode-host-busy {
-  position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
-  background: rgba(247, 248, 244, .92); color: #293e33; font: 16px/1.6 system-ui, sans-serif;
-}
-</style>

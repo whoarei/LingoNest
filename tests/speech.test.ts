@@ -45,6 +45,28 @@ beforeEach(() => {
   });
 });
 describe("speech controller", () => {
+  it("does not record exposure when playback fails before it starts", async () => {
+    const speech = useSpeech(course), started = vi.fn(async () => {});
+    mocks.playCourseAudio.mockRejectedValueOnce(new Error("Offline voice unavailable"));
+    await expect(speech.play("Hello.", started)).rejects.toThrow("voice unavailable");
+    expect(started).not.toHaveBeenCalled();
+  });
+  it("records actual playback once, awaits its durable update and retains it after interruption", async () => {
+    const speech = useSpeech(course);
+    await speech.load();
+    let fail!: (error: unknown) => void, persist!: () => void;
+    mocks.playCourseAudio.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+    const started = vi.fn(() => new Promise<void>(resolve => { persist = resolve; }));
+    let settled = false;
+    const pending = speech.play("Hello.", started).then(result => { settled = true; return result; });
+    await vi.waitFor(() => expect(mocks.playCourseAudio).toHaveBeenCalled());
+    const listener = mocks.addListener.mock.calls[0]![1];
+    listener({ phase: "playing", source: "course" }); listener({ phase: "playing", source: "course" });
+    await vi.waitFor(() => expect(started).toHaveBeenCalledTimes(1));
+    fail({ code: "AUDIO_INTERRUPTED" });
+    await Promise.resolve(); expect(settled).toBe(false);
+    persist(); expect(await pending).toBe(false);
+  });
   it("removes native listeners even when registration resolves after its mode scope is disposed", async () => {
     const releases: ((handle: { remove(): Promise<void> }) => void)[] = [];
     mocks.addListener.mockImplementation(() => new Promise((resolve) => releases.push(resolve)));

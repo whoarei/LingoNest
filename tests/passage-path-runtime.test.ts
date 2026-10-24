@@ -6,8 +6,63 @@ import { passageReport } from "../packages/learning-modes/passage-path/reporting
 import { publishPassagePackage, transitionPassage } from "../packages/learning-modes/passage-path/runtime";
 import { decodePassageState, emptyPassageState } from "../packages/learning-modes/passage-path/state";
 import { approve, context, finishSession, fixtureDraft, fixturePackage, responseFor, started } from "./fixtures/passage-path";
+import { attemptRecord } from "../packages/learning-modes/passage-path/presentation";
+import { sessionItem, randomFromSeed } from "../packages/learning-modes/passage-path/scheduler";
 
 describe("passage-path sessions", () => {
+  it("sizes a new short round by goal coverage, preserving recognition, assembly and recall", () => {
+    const one = started();
+    const kinds = one.sessions[0]!.queue.map(item => questionFor(one, item).demand);
+    expect(one.sessions[0]).toMatchObject({ schedulerVersion: "2", baseCount: 4 });
+    expect(new Set(kinds)).toEqual(new Set(["recognize", "supported", "recall"]));
+    expect(new Set(one.sessions[0]!.queue.map(item => questionFor(one, item).kind)).size).toBe(4);
+    const draft = fixtureDraft(); draft.levels = [{ ...draft.levels[0]!, newGoalIds: draft.goals.map(goal => goal.id), reviewGoalIds: [] }];
+    const two = started(approve(emptyPassageState(), fixturePackage(undefined, undefined, draft)));
+    expect(two.sessions[0]!.baseCount).toBe(6);
+    for (const goal of draft.goals) expect(two.sessions[0]!.queue.filter(item => questionFor(two, item).goalId === goal.id).map(item => questionFor(two, item).demand).sort()).toEqual(["recall", "recognize", "supported"]);
+  });
+  it("resumes a frozen legacy eight-question session verbatim and uses its audited minimum for a new child", () => {
+    const pkg = fixturePackage(); pkg.rules = { version: "1", questionCount: 8, minQuestionCount: 6, maxNewChunks: 2, dueCount: 2, weakCount: 1, maxCrossCourse: 2, maxRepairs: 2 };
+    const state = started(approve(emptyPassageState(), pkg));
+    const run = state.sessions[0]!;
+    for (const question of pkg.questions.filter(question => question.goalId === "goal-like" && !run.queue.some(item => item.questionId === question.id)).slice(0, 8 - run.baseCount)) run.queue.push(sessionItem(pkg, question, "current", randomFromSeed(17)));
+    run.schedulerVersion = "1"; run.baseCount = 8;
+    const restored = decodePassageState(JSON.stringify(state));
+    expect(transitionPassage(restored, context(), { type: "start", sessionId: "unused", seed: 2 })).toBe(restored);
+    expect(restored.sessions[0]!.queue).toEqual(run.queue);
+    const next = started(restored, { ...context(), learnerId: "child-b" }, "short-new-child");
+    expect(next.sessions[1]!.baseCount).toBe(6);
+  });
+  it("does not turn source inspection after submission into help used before answering", () => {
+    const ctx = context(); let state = started();
+    state = transitionPassage(state, ctx, { type: "submit", sessionId: "session-1", index: 0, attemptId: "unassisted", response: responseFor(state, "session-1") });
+    const original = structuredClone(state.attempts[0]!);
+    state = transitionPassage(state, ctx, { type: "assist", sessionId: "session-1", index: 0, kind: "source" });
+    expect(state.attempts[0]).toEqual(original);
+    expect(state.sessions[0]!.helpRequests![0]!.afterAnswer).toBe(true);
+    const conditions = attemptRecord(state, state.attempts[0]!).details!.find(item => item.label === "作答条件")!.value;
+    expect(conditions).toContain("提交前未使用辅助"); expect(conditions).toContain("提交后主动查看原文");
+    const legacy = started(); delete legacy.sessions[0]!.helpRequests;
+    expect(passageReport(legacy, ctx.learnerId, ctx.courseId, "package-1").helpTrackingComplete).toBe(false);
+  });
+  it("keeps explicit help separate from feedback consolidation and preserves unknown legacy history", () => {
+    const ctx = context(); let state = started();
+    state = transitionPassage(state, ctx, { type: "assist", sessionId: "session-1", index: 0, kind: "source" });
+    state = transitionPassage(state, ctx, { type: "assist", sessionId: "session-1", index: 0, kind: "source" });
+    state = finishSession(state, ctx, "session-1");
+    const report = passageReport(state, ctx.learnerId, ctx.courseId, "package-1");
+    expect(report.helpRequestCount).toBe(1);
+    expect(report.assistedAttemptCount).toBeGreaterThan(1);
+    expect(report.helpTrackingComplete).toBe(true);
+    const record = attemptRecord(state, state.attempts[0]!);
+    expect(record).toMatchObject({ title: questionFor(state, state.attempts[0]!.item).prompt, outcome: "答对了" });
+    expect(record.details!.find(item => item.label === "作答条件")!.value).toContain("主动查看原文");
+    expect(record.details!.find(item => item.label === "我的答案")!.value).not.toBe("");
+    delete state.sessions[0]!.helpRequests;
+    const restored = decodePassageState(JSON.stringify(state));
+    expect(passageReport(restored, ctx.learnerId, ctx.courseId, "package-1").helpTrackingComplete).toBe(false);
+    expect(attemptRecord(restored, restored.attempts[0]!).details!.find(item => item.label === "作答条件")!.value).toContain("旧版未单独记录");
+  });
   it("records original exposure after feedback and with missing audio without altering the submitted fact", () => {
     const ctx = context(); let state = started();
     state = transitionPassage(state, ctx, { type: "submit", sessionId: "session-1", index: 0, attemptId: "before-original", response: responseFor(state, "session-1") });
@@ -26,7 +81,7 @@ describe("passage-path sessions", () => {
     expect(state.sessions[0]!.queue).toEqual(started(original, ctx).sessions[0]!.queue);
     expect(original.sessions).toHaveLength(0);
     const queue = state.sessions[0]!.queue;
-    expect(queue).toHaveLength(8);
+    expect(queue).toHaveLength(4);
     expect(questionFor(state, queue[0]!).demand).toBe("recognize");
     for (const item of queue) {
       const question = questionFor(state, item);
@@ -52,14 +107,14 @@ describe("passage-path sessions", () => {
     const state = finishSession(started(), ctx, "session-1", false);
     const session = state.sessions[0]!;
     expect(session.status).toBe("completed");
-    expect(session.queue.length).toBeGreaterThan(8);
-    expect(session.queue.length).toBeLessThanOrEqual(10);
+    expect(session.queue.length).toBeGreaterThan(4);
+    expect(session.queue.length).toBeLessThanOrEqual(6);
     expect(new Set(session.queue.map(item => item.questionId)).size).toBe(session.queue.length);
     expect(session.queue.slice(session.baseCount).every(item => item.reason === "repair")).toBe(true);
     expect(state.attempts.every(attempt => !attempt.correct && !attempt.evidenceEligible)).toBe(true);
     expect(state.completions).toHaveLength(1);
     const report = passageReport(state, ctx.learnerId, ctx.courseId, "package-1");
-    expect(report).toMatchObject({ completedLevels: 1, totalLevels: 2, firstAttemptCount: 8, firstCorrectCount: 0 });
+    expect(report).toMatchObject({ completedLevels: 1, totalLevels: 2, firstAttemptCount: 4, firstCorrectCount: 0 });
     expect(report.goals[0]!.status).toBe("weak");
     expect(decodePassageState(JSON.stringify(state))).toEqual(state);
     const next = started(state, ctx, "session-2");

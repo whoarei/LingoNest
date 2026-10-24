@@ -4,8 +4,8 @@ import { normalizeAnswer, questionFingerprint } from "./grading";
 import { array, copy, id, ids, record, requireValid, text, time, uniqueRecords } from "./validation";
 
 export const defaultPassageRules: Readonly<PassageRules> = Object.freeze({
-  version: "1", questionCount: 8, minQuestionCount: 6, maxNewChunks: 2,
-  dueCount: 2, weakCount: 1, maxCrossCourse: 2, maxRepairs: 2,
+  version: "2", questionCount: 6, minQuestionCount: 4, maxNewChunks: 2,
+  dueCount: 1, weakCount: 1, maxCrossCourse: 1, maxRepairs: 2,
 });
 export function createPassageSource(input: { courseId: string; revision: string; title: string; sourceText: string; images?: SourceImage[] }): PassageSource {
   requireValid(id(input.courseId) && id(input.revision) && text(input.title, 200) && text(input.sourceText, 6000), "教材身份或原文无效。");
@@ -29,9 +29,10 @@ export function validateSource(value: unknown): asserts value is PassageSource {
     [0, 90, 180, 270].includes(Number(image.rotation)) && typeof image.rotation === "number"), "材料图片引用无效。");
 }
 export function validateRules(value: unknown): asserts value is PassageRules {
-  requireValid(record(value) && value.version === "1", "不支持的编排规则版本。");
+  requireValid(record(value) && (value.version === "1" || value.version === "2"), "不支持的编排规则版本。");
   const integer = (key: string, min: number, max: number) => Number.isInteger(value[key]) && Number(value[key]) >= min && Number(value[key]) <= max;
-  requireValid(integer("questionCount", 6, 10) && integer("minQuestionCount", 6, Number(value.questionCount)) &&
+  const minimum = value.version === "1" ? 6 : 4;
+  requireValid(integer("questionCount", minimum, value.version === "1" ? 10 : 6) && integer("minQuestionCount", minimum, Number(value.questionCount)) &&
     integer("maxNewChunks", 1, 3) && integer("dueCount", 0, 3) && integer("weakCount", 0, 2) &&
     integer("maxCrossCourse", 0, 2) && integer("maxRepairs", 0, 2) &&
     Number(value.dueCount) + Number(value.weakCount) <= Number(value.questionCount) - 2, "编排预算无效。");

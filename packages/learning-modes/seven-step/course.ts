@@ -134,9 +134,9 @@ export const stageDefinitions: Omit<
   StageView,
   "total" | "done" | "available" | "verified"
 >[] = [
-  { id: "S1", title: "读懂故事", subtitle: "理解三段课文在说什么", icon: "01" },
-  { id: "S2", title: "认识单词", subtitle: "把运动与活动写出来", icon: "02" },
-  { id: "S3", title: "搭好句子", subtitle: "练习邀请与介绍爱好", icon: "03" },
+  { id: "S1", title: "读懂故事", subtitle: "理解课文的内容与意思", icon: "01" },
+  { id: "S2", title: "认识单词", subtitle: "写出本课重点词汇", icon: "02" },
+  { id: "S3", title: "搭好句子", subtitle: "把本课的句子排列完整", icon: "03" },
   { id: "S4", title: "开口朗读", subtitle: "看着课文，读给自己听", icon: "04" },
   {
     id: "S5",
@@ -145,7 +145,7 @@ export const stageDefinitions: Omit<
     icon: "05",
   },
   { id: "S6", title: "听写句子", subtitle: "听一听，再独立写下来", icon: "06" },
-  { id: "S7", title: "换个情境", subtitle: "用学过的句型邀请朋友", icon: "07" },
+  { id: "S7", title: "换个情境", subtitle: "在新情境中运用本课表达", icon: "07" },
 ];
 
 const cell = (

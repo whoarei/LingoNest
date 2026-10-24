@@ -1,9 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
+import { adult, navigate, parentSpace } from "./fixtures/application";
 
 async function onboard(page: Page) {
   await page.goto("/");
   await page.getByLabel("先给自己起个昵称").fill("小树");
   await page.getByRole("button", { name: "建立我的小窝" }).click();
+  await adult(page);
   await expect(page.getByRole("heading", { name: /你好，小树/ })).toBeVisible();
   await page.getByRole("button", { name: "先来认识这篇课文" }).click();
   await expect(
@@ -52,10 +54,10 @@ test("learner can confirm a course, complete comprehension, resume and keep hint
   await expect(page.locator(".stage-row").first()).toContainText("已验证");
   await page.getByRole("button", { name: "继续认识单词" }).click();
   await page.getByRole("button", { name: "给我一点提示" }).click();
-  await expect(page.getByText("用了提示，这次作为练习记录。")).toBeVisible();
+  await expect(page.getByText("先借助提示练熟，完成后再独立试一次。")).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "继续认识单词" }).click();
-  await expect(page.getByText("用了提示，这次作为练习记录。")).toBeVisible();
+  await expect(page.getByText("先借助提示练熟，完成后再独立试一次。")).toBeVisible();
   await page.getByLabel("写出这个单词").fill("basketball");
   await page.getByRole("button", { name: "提交答案", exact: true }).click();
   await expect(
@@ -77,140 +79,55 @@ test("learner can confirm a course, complete comprehension, resume and keep hint
   expect(exceptions).toEqual([]);
 });
 
-test("desktop layout and a second learner remain independent", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await onboard(page);
-  await page.screenshot({
-    path: "artifacts/screenshots/home-desktop.png",
-    fullPage: true,
-  });
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "管理孩子档案", exact: true }).click();
-  await page.getByRole("button", { name: "新建", exact: true }).click();
-  await page.getByLabel("新档案昵称").fill("小芽");
-  await page.getByRole("button", { name: "创建", exact: true }).click();
-  await page.getByLabel("7加5的答案").fill("12");
-  await page.getByRole("button", { name: "确认并继续" }).click();
-  await expect(
-    page.getByRole("heading", { name: "当前档案 · 小芽" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "切换到学习空间", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "先来认识这篇课文" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "管理孩子档案", exact: true }).click();
-  await page.locator(".learner-option").filter({ hasText: "小树" }).click();
-  await page
-    .getByRole("button", { name: "切换到学习空间", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "继续读懂故事" }),
-  ).toBeVisible();
+test("desktop layout and a second learner remain independent", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 }); await onboard(page);
+  await parentSpace(page); await page.getByRole("button", { name: "管理孩子档案", exact: true }).click();
+  await page.getByRole("button", { name: "新建孩子档案", exact: true }).click();
+  await page.getByLabel("孩子昵称", { exact: true }).fill("小芽");
+  await page.getByRole("button", { name: "创建档案", exact: true }).click(); await adult(page);
+  await expect(page.locator(".frame-profile")).toHaveText("小芽");
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await expect(page.getByRole("button", { name: "先来认识这篇课文" })).toBeVisible();
+  await parentSpace(page); await page.getByRole("button", { name: "管理孩子档案", exact: true }).click();
+  await page.locator(".frame-list-row").filter({ hasText: "小树" }).getByRole("button", { name: "切换档案" }).click();
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await expect(page.getByRole("button", { name: "继续读懂故事" })).toBeVisible();
+  await page.screenshot({ path: "artifacts/screenshots/home-desktop.png", fullPage: true });
 });
 
-test("top-left icon toggles parent space while speech configuration stays in settings", async ({
-  page,
-}) => {
-  await onboard(page);
-  await page.getByRole("button", { name: "成长", exact: true }).click();
-  await page
-    .getByRole("button", { name: "切换到家长空间", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "家长空间", exact: true }),
-  ).toBeVisible();
+test("shared parent space keeps settings outside the teaching plugin and returns to learning", async ({ page }) => {
+  await onboard(page); await parentSpace(page);
   await expect(page.locator(".speech-settings")).toHaveCount(0);
-  await expect(page.getByLabel("7加5的答案")).toHaveCount(0);
-  await expect(
-    page.getByRole("navigation", { name: "家长导航" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "目前没有等待确认的录音" }),
-  ).toBeVisible();
-  await page.screenshot({
-    path: "artifacts/screenshots/parent-space-mobile.png",
-    fullPage: true,
-  });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-  await page
-    .getByRole("button", { name: "切换到学习空间", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "看见自己的成长" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.locator(".speech-settings")).toBeVisible();
-  await expect(page.getByLabel("朗读方式")).toBeVisible();
-  await expect(page.locator(".parent-page")).not.toBeVisible();
-  await expect(page.getByLabel("7加5的答案")).toHaveCount(0);
-  await page.getByRole("button", { name: "小窝", exact: true }).click();
-  await page.getByRole("button", { name: "进入家长空间", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "家长空间", exact: true }),
-  ).toBeVisible();
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.screenshot({
-    path: "artifacts/screenshots/parent-space-desktop.png",
-    fullPage: true,
-  });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
+  await expect(page.getByRole("navigation", { name: "家长导航" }).getByRole("button")).toHaveText(["概况", "课程", "记录", "设置"]);
+  await navigate(page, "设置"); await expect(page.getByLabel("朗读方式")).toBeVisible();
+  await navigate(page, "概况");
+  await expect(page.locator(".speech-settings")).toHaveCount(0);
+  await page.getByRole("button", { name: "返回学习空间", exact: true }).click();
+  await expect(page.getByRole("button", { name: "继续读懂故事" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("switching to parent space during practice requires confirmation and preserves the run", async ({
-  page,
-}) => {
-  await onboard(page);
-  await page.getByRole("button", { name: "继续读懂故事" }).click();
-  await page
-    .getByRole("button", { name: "切换到家长空间", exact: true })
-    .click();
+test("the application focus layout confirms exit and preserves the unfinished seven-step run", async ({ page }) => {
+  await onboard(page); await page.getByRole("button", { name: "继续读懂故事" }).click();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toHaveCount(0);
+  await page.getByRole("button", { name: "保存并退出", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "继续练习", exact: true }).click();
   await expect(page.locator(".practice-page")).toBeVisible();
-  await page
-    .getByRole("button", { name: "切换到家长空间", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "保存进度并切换", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "家长空间", exact: true }),
-  ).toBeVisible();
-  const state = await page.evaluate(() =>
-    JSON.parse(JSON.parse(localStorage.getItem("lingonest.local.v1")!).payload),
-  );
-  expect(
-    state.events.filter((event: any) => event.type === "attempt"),
-  ).toHaveLength(0);
-  await page
-    .getByRole("button", { name: "切换到学习空间", exact: true })
-    .click();
+  await page.getByRole("button", { name: "保存并退出", exact: true }).click();
+  await page.getByRole("button", { name: "保存进度并退出", exact: true }).click();
+  const state = await page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem("lingonest.local.v1")!).payload));
+  expect(state.events.filter((event: any) => event.type === "attempt")).toHaveLength(0);
   await page.getByRole("button", { name: "继续读懂故事" }).click();
   await expect(page.locator(".practice-page")).toBeVisible();
 });
 
-test("corrupt local data is surfaced and preserved", async ({ page }) => {
+test("corrupt local data is surfaced and preserved while application settings remain accessible", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(() =>
-    localStorage.setItem("lingonest.local.v1", "{bad-json"),
-  );
-  await page.reload();
-  await expect(page.getByRole("alert")).toContainText("无法读取学习记录");
-  expect(
-    await page.evaluate(() => localStorage.getItem("lingonest.local.v1")),
-  ).toBe("{bad-json");
+  await page.evaluate(() => localStorage.setItem("lingonest.local.v1", "{bad-json")); await page.reload();
+  await expect(page.getByRole("alert")).toContainText("无法读取本机数据");
+  expect(await page.evaluate(() => localStorage.getItem("lingonest.local.v1"))).toBe("{bad-json");
+  await page.getByRole("button", { name: "打开设置", exact: true }).click(); await adult(page);
+  await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("lingonest.local.v1"))).toBe("{bad-json");
 });
