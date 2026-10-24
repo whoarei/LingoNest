@@ -1,6 +1,6 @@
 {
   "name": "lingonest",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:docs": "node scripts/check-doc-links.mjs",
+    "check:release": "node scripts/release-metadata.mjs",
     "build": "npm run typecheck && node scripts/assert-no-bundled-audio.mjs public && vite build && node scripts/assert-no-bundled-audio.mjs dist",
     "icons:generate": "node scripts/generate-icons.mjs",
     "audio:generate": "node scripts/generate-course-audio.mjs",

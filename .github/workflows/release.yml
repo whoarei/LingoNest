@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+
+  android:
+    name: Build and verify signed APK
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --registry=https://registry.npmjs.org
+      - name: Resolve release metadata
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run check:release
+      - run: npm run android:sync
+      - run: node scripts/assert-no-bundled-audio.mjs android/app/src/main/assets
+      - name: Sign and verify APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          LINGONEST_KEYSTORE_PATH: ${{ runner.temp }}/lingonest-release.keystore
+          LINGONEST_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LINGONEST_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LINGONEST_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_CODE: ${{ steps.metadata.outputs.version_code }}
+          SIGNING_CERTIFICATE_SHA256: 28c461e4f2f8612f9d7717d727e772177474798fd7c48b03ca3ffbca8c81bf0a
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$LINGONEST_KEYSTORE_PATH"' EXIT
+          : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64}"
+          : "${LINGONEST_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD}"
+          : "${LINGONEST_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
+          : "${LINGONEST_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$LINGONEST_KEYSTORE_PATH"
+          chmod 600 "$LINGONEST_KEYSTORE_PATH"
+          unset ANDROID_KEYSTORE_BASE64
+          bash android/gradlew -p android assembleRelease --no-daemon --console=plain
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/apk-signature.txt"
+          expected=$(keytool -exportcert -keystore "$LINGONEST_KEYSTORE_PATH" -storepass:env LINGONEST_KEYSTORE_PASSWORD -alias "$LINGONEST_KEY_ALIAS" | sha256sum | cut -d' ' -f1)
+          actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt")
+          test "$expected" = "$actual"
+          test "$actual" = "$SIGNING_CERTIFICATE_SHA256"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "package: name='cn.lingonest.app' versionCode='$RELEASE_CODE' versionName='$RELEASE_VERSION'" "$RUNNER_TEMP/apk-badging.txt"
+          if grep -q 'application-debuggable' "$RUNNER_TEMP/apk-badging.txt"; then exit 1; fi
+          python3 - "$apk" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              forbidden = [name for name in apk.namelist() if name.lower().endswith(('.keystore', '.jks', '.p12', '.wav', '.mp3', '.m4a', '.ogg', '.aac', '.flac', '.opus')) or any(part == '.env' or part.startswith('.env.') for part in name.split('/'))]
+              if forbidden:
+                  raise SystemExit('Forbidden APK contents: ' + ', '.join(forbidden))
+          PY
+          mkdir -p artifacts/release
+          cp "$apk" "artifacts/release/lingonest-$RELEASE_VERSION-release.apk"
+          printf '%s\n' "$actual" > artifacts/release/signing-certificate-sha256.txt
+          cd artifacts/release
+          sha256sum "lingonest-$RELEASE_VERSION-release.apk" signing-certificate-sha256.txt > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-release
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Resolve release notes
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release-metadata.mjs
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-release
+          path: release-assets
+      - name: Verify checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ steps.metadata.outputs.notes }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release-error.txt"; then
+            node -e 'if (!JSON.parse(require("node:fs").readFileSync(process.argv[1])).isDraft) { throw new Error("Refusing to replace a published release."); }' "$RUNNER_TEMP/release.json"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "英语小窝 $RELEASE_TAG" --notes-file "$RELEASE_NOTES"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

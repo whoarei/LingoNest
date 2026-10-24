@@ -7,8 +7,8 @@ android {
         applicationId "cn.lingonest.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 16
-        versionName "0.1.15"
+        versionCode 17
+        versionName "0.1.16"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -34,6 +34,22 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+def validateReleaseSigning = tasks.register('validateReleaseSigning') {
+    doLast {
+        ['LINGONEST_KEYSTORE_PATH', 'LINGONEST_KEYSTORE_PASSWORD', 'LINGONEST_KEY_ALIAS', 'LINGONEST_KEY_PASSWORD'].each { name ->
+            if (!System.getenv(name)?.trim()) {
+                throw new GradleException("Release signing requires environment variable ${name}.")
+            }
+        }
+        if (!file(System.getenv('LINGONEST_KEYSTORE_PATH')).isFile()) {
+            throw new GradleException('Release signing keystore file does not exist.')
+        }
+    }
+}
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach {
+    dependsOn validateReleaseSigning
 }
 
 repositories {

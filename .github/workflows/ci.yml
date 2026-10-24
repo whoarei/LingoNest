@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web and browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --registry=https://registry.npmjs.org
+      - name: Check release metadata
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: npm run check:release
+      - run: npm run check:docs -- --allow-missing-artifacts
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-failure-evidence
+          path: |
+            playwright-report/
+            test-results/
+            artifacts/**/*.png
+          retention-days: 7
+
+  android:
+    name: Android build and native unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --registry=https://registry.npmjs.org
+      - run: npm run android:sync
+      - run: node scripts/assert-no-bundled-audio.mjs android/app/src/main/assets
+      - run: bash android/gradlew -p android testDebugUnitTest assembleDebug --no-daemon --console=plain
+      - name: Upload native test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-failure-evidence
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+          retention-days: 7

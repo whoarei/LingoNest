@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const failures = [];
+// Historical reports link to ignored local evidence, which is absent in a clean CI checkout.
+const allowMissingArtifacts = process.argv.includes('--allow-missing-artifacts');
+const artifactRoot = path.resolve('artifacts') + path.sep;
 let count = 0;
 for (const directory of ['docs', 'issues']) {
   const seen = new Set();
@@ -14,7 +17,9 @@ for (const directory of ['docs', 'issues']) {
     for (const link of text.matchAll(/\]\(([^)\n]+)\)/g)) {
       const target = link[1].replace(/^<|>$/g, '').split('#')[0];
       if (!target || /^(https?:|mailto:)/.test(target)) continue;
-      if (!fs.existsSync(path.resolve(path.dirname(file), decodeURIComponent(target)))) failures.push(`${file}: missing ${target}`);
+      const resolved = path.resolve(path.dirname(file), decodeURIComponent(target));
+      if (allowMissingArtifacts && resolved.startsWith(artifactRoot)) continue;
+      if (!fs.existsSync(resolved)) failures.push(`${file}: missing ${target}`);
     }
     count++;
   }
