@@ -20,6 +20,7 @@ const image =
 export const contentNative = {
   getConfig: async () => configuration,
   saveConfig: async ({ kind, baseUrl, model, apiKey }) => {
+    if (window.__contentSaveFailure) throw new Error(window.__contentSaveFailure);
     configuration[kind] = {
       baseUrl,
       model,
@@ -27,6 +28,12 @@ export const contentNative = {
     };
     sessionStorage.setItem("content-fixture", JSON.stringify(configuration));
     return configuration[kind];
+  },
+  testConfig: async ({ kind }) => {
+    (window.__contentTests ||= []).push({ kind, ...configuration[kind] });
+    if (window.__contentTestDelay)
+      await new Promise(resolve => setTimeout(resolve, window.__contentTestDelay));
+    if (window.__contentTestFailure) throw new Error(window.__contentTestFailure);
   },
   clearConfig: async ({ kind }) => {
     configuration[kind] = { baseUrl: "", model: "", hasKey: false };
@@ -39,6 +46,7 @@ export const contentNative = {
   imageUrl: async () => ({ url: image }),
   cancelRequest: async () => {
     epoch++;
+    window.__contentCancellations = (window.__contentCancellations || 0) + 1;
   },
   request: async ({ prompt }) => {
     if (prompt.startsWith("你为课文闯关模式")) prompt = "passage-path";

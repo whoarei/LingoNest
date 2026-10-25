@@ -16,6 +16,7 @@ export const contentNative = registerPlugin<{
     apiKey: string;
   }): Promise<ContentConfiguration>;
   clearConfig(input: { kind: ContentKind }): Promise<void>;
+  testConfig(input: { kind: ContentKind }): Promise<void>;
   pickImage(input: {
     mode: "camera" | "gallery";
   }): Promise<SourceImage & { cancelled?: boolean }>;

@@ -10,7 +10,7 @@ import {
 import type { SpeechController } from "../platform/speech";
 import { speechVoices, speechSample, type SpeechInput } from "../speech-types";
 import Icon from "./AppIcon.vue";
-import { useOperationNotices } from "../platform/notifications";
+import ApiKeyInput from "./ApiKeyInput.vue";
 const props = defineProps<{ speech: UnwrapNestedRefs<SpeechController> }>();
 const form = reactive<SpeechInput>({ ...props.speech.configuration });
 const apiKey = ref(""),
@@ -19,7 +19,6 @@ const apiKey = ref(""),
   message = ref(""),
   error = ref(""),
   confirmReset = ref(false);
-const applicationNotices = useOperationNotices(message, error);
 const voices = computed(() => speechVoices[form.protocol]);
 watch(
   () => form.protocol,
@@ -102,14 +101,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="speech-settings" aria-labelledby="speech-title">
-    <div class="section-heading">
+    <div class="section-heading model-settings-heading">
+      <span class="model-settings-icon"><Icon name="volume" :size="22" /></span>
       <div>
         <h2 id="speech-title">语音模型与朗读配置</h2>
         <p>
-          在此保存模型、音色和语速；每门课程的音频在家长空间的课程管理中准备。
+          连接语音服务、选择音色，保存后先听一听。
         </p>
       </div>
-      <Icon name="volume" :size="23" />
     </div>
     <p v-if="!speech.supported" class="inline-note">
       浏览器用于文字练习预览。AI 语音设置请在 Android 应用中使用。
@@ -122,15 +121,18 @@ onBeforeUnmount(() => {
         :disabled="
           busy || speech.courseGenerating || !speech.supported || !speech.ready
         "
-        class="speech-fields"
+        class="speech-fields model-speech-grid"
       >
+        <div class="model-config-card">
+          <h3>语音服务</h3>
+          <p class="model-config-description">选择设备朗读，或连接自己的 AI 语音服务。</p>
         <label for="speech-mode">朗读方式</label>
         <select id="speech-mode" v-model="form.mode">
           <option value="device">设备离线朗读</option>
           <option value="ai">AI 语音合成</option>
         </select>
         <p class="field-help">
-          学习优先播放已生成的课程音频。此处配置用于试听和生成新版本，语速直接用于课程播放。
+          学习时优先播放已准备的课程音频。
         </p>
         <template v-if="form.mode === 'ai'">
           <div class="speech-presets">
@@ -175,22 +177,25 @@ onBeforeUnmount(() => {
             required
           />
           <label for="speech-key">API Key</label
-          ><input
+          ><ApiKeyInput
             id="speech-key"
             v-model="apiKey"
-            type="password"
+            label="语音 API Key"
             :placeholder="
               speech.configuration.hasKey
-                ? '已保存；留空保留当前 Key'
-                : '仅保存在此设备'
+                ? '已保存，留空沿用'
+                : '填写 API Key'
             "
-            autocomplete="new-password"
-            autocapitalize="none"
-            spellcheck="false"
           />
           <p class="field-help">
             Key 加密保存在本机。更换服务域名时需要重新填写。
           </p>
+        </template>
+        </div>
+        <div class="model-config-card">
+          <h3>音色与播放</h3>
+          <p class="model-config-description">{{ form.mode === 'ai' ? '先选音色，再调整适合孩子的朗读速度。' : '设备朗读使用系统音色，可调整朗读速度。' }}</p>
+        <template v-if="form.mode === 'ai'">
           <label for="speech-voice">音色</label
           ><select v-if="!customVoice" id="speech-voice" v-model="form.voice">
             <option v-for="voice in voices" :key="voice.id" :value="voice.id">
@@ -251,15 +256,12 @@ onBeforeUnmount(() => {
           <p class="field-help">
             OpenAI 兼容服务需模型支持风格指令；不支持时请留空。
           </p>
-          <p class="quiet-note">
-            AI
-            合成语音。首次试听或生成会将朗读文字发送到你配置的服务；整课生成后成为课程资源。音色、模型或风格变化需要明确重新生成，原课程音频保留到新版本完成。
-          </p></template
-        >
-        <div class="speech-actions">
-          <button class="button primary compact" type="submit">保存配置</button
+        </template>
+        </div>
+        <div class="speech-actions model-speech-actions">
+          <button class="button secondary compact" type="submit">保存配置</button
           ><button
-            class="button secondary compact"
+            class="button primary compact"
             type="button"
             @click="save(true)"
           >
@@ -276,10 +278,15 @@ onBeforeUnmount(() => {
     >
       {{ speech.phase === "generating" ? "取消语音生成" : "停止播放" }}
     </button>
-    <p v-if="message && !applicationNotices" class="inline-note" role="status">{{ message }}</p>
-    <p v-if="error && !applicationNotices" class="inline-note speech-error" role="alert">
+    <p v-if="message" class="model-config-feedback success" role="status">{{ message }}</p>
+    <p v-if="error" class="model-config-feedback error" role="alert">
       {{ error }}
     </p>
+    <details class="model-config-help">
+      <summary>试听与课程音频说明</summary>
+      <p>试听或生成会将朗读文字发送到配置的服务。整课音频请在课程管理中准备，生成后可反复离线学习。</p>
+      <p>更换音色、模型或朗读风格后，需重新生成课程音频；原音频保留到新版本完成。语速直接用于播放，无需重复生成。</p>
+    </details>
     <div v-if="speech.supported" class="speech-cache">
       <p>
         试听缓存：{{ speech.cache.count }} 段 ·

@@ -394,7 +394,7 @@ test("failed generation preserves a resumable draft, malformed output cannot pub
     .getByLabel("课程生成 API Key", { exact: true })
     .fill("fake-course-key");
   await page
-    .getByRole("button", { name: "保存课程生成配置", exact: true })
+    .getByRole("button", { name: "仅保存课程生成配置", exact: true })
     .click();
   await expect(
     page.getByLabel("课程生成 API Key", { exact: true }),

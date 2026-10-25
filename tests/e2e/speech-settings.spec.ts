@@ -172,7 +172,7 @@ test("pause, reload and continue only missing course audio; delete resets course
   await settings(page);
   await expect(page.getByLabel("API Key", { exact: true })).toHaveAttribute(
     "placeholder",
-    "已保存；留空保留当前 Key",
+    "已保存，留空沿用",
   );
   await expect(page.locator(".frame-profile")).toContainText("语音测试");
   expect(await page.evaluate(() => (window as any).__speechRequests)).toBe(44);

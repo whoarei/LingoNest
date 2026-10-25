@@ -134,9 +134,7 @@
 .lingonest-app .shared-content .section-heading h2 { margin-bottom:8px; }
 .lingonest-app .shared-content .section-heading p { margin:0; color:var(--frame-muted); font-size:14px; }
 .lingonest-app .frame-settings>.frame-section,
-.lingonest-app .frame-settings>.course-mode-settings,
-.lingonest-app .shared-content .speech-settings,
-.lingonest-app .shared-content .content-settings { padding:24px; margin:0 0 20px; border:1px solid var(--frame-line); border-radius:18px; background:var(--frame-surface); }
+.lingonest-app .frame-settings>.course-mode-settings { padding:24px; margin:0 0 20px; border:1px solid var(--frame-line); border-radius:18px; background:var(--frame-surface); }
 .lingonest-app .frame-settings-nav { display:flex; flex-wrap:wrap; margin:0 0 24px; }
 .lingonest-app .frame-settings-nav a { display:inline-flex; align-items:center; min-height:44px; padding:8px 14px; margin:0 8px 8px 0; border:1px solid #ccd7c6; border-radius:24px; color:var(--frame-green); background:var(--frame-surface); font-size:14px; text-decoration:none; }
 .lingonest-app .frame-settings h2 { scroll-margin-top:24px; }
@@ -158,9 +156,39 @@
 .lingonest-app .shared-content .speech-speed-buttons button[aria-pressed="true"] { border-color:var(--frame-green); background:#e8eedf; box-shadow:inset 0 0 0 1px var(--frame-green); font-weight:650; }
 .lingonest-app .shared-content .speech-cache { margin-top:24px; padding-top:18px; border-top:1px solid var(--frame-line); font-size:14px; }
 .lingonest-app .shared-content .speech-cache button { margin-right:18px; }
-.lingonest-app .shared-content .content-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; }
+.lingonest-app .shared-content .content-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
 .lingonest-app .shared-content .content-config-grid form { min-width:0; margin:0; }
-.lingonest-app .shared-content .content-config-grid h3 { margin:0 0 18px; font-size:17px; }
+.lingonest-app .shared-content .speech-settings,
+.lingonest-app .shared-content .content-settings { padding:0; border:0; margin:32px 0; background:transparent; }
+.lingonest-app .shared-content .model-settings-heading { display:flex; align-items:flex-start; margin-bottom:20px; }
+.lingonest-app .shared-content .model-settings-heading>div { flex:1; min-width:0; }
+.lingonest-app .shared-content .model-settings-heading h2 { margin:0 0 6px; }
+.lingonest-app .shared-content .model-settings-heading p { margin:0; color:var(--frame-muted); font-size:14px; }
+.lingonest-app .shared-content .model-settings-icon { display:flex; align-items:center; justify-content:center; width:42px; height:42px; flex-shrink:0; margin-right:12px; border:1px solid #dce4d5; border-radius:13px; color:var(--frame-green); background:#eaf0e2; }
+.lingonest-app .shared-content .model-config-card { padding:22px; border:1px solid var(--frame-line); border-radius:16px; background:var(--frame-surface); min-width:0; }
+.lingonest-app .shared-content .model-config-card h3 { font-size:17px; margin:0; }
+.lingonest-app .shared-content .model-config-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.lingonest-app .shared-content .model-config-description { margin:8px 0 24px; color:var(--frame-muted); font-size:13px; line-height:1.6; }
+.lingonest-app .shared-content .model-config-status { display:inline-flex; align-items:center; padding:3px 9px; border-radius:20px; font-size:12px; font-weight:600; background:#eff1ea; color:#617064; }
+.lingonest-app .shared-content .model-config-status::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; margin-right:6px; }
+.lingonest-app .shared-content .model-config-status.success { color:#285a3f; background:#e7f1e6; }
+.lingonest-app .shared-content .model-config-status.pending { color:#86612b; background:#f6efd9; }
+.lingonest-app .shared-content .model-config-status.error { color:#8d4233; background:#fae9e2; }
+.lingonest-app .shared-content .model-field-help { font-size:12px; line-height:1.65; color:var(--frame-muted); margin:-8px 0 18px; }
+.lingonest-app .shared-content .model-config-actions { display:flex; flex-wrap:nowrap; margin-top:22px; }
+.lingonest-app .shared-content .model-config-actions>button { margin:0; }
+.lingonest-app .shared-content .model-config-actions>button+button { margin-left:10px; }
+.lingonest-app .shared-content .model-test-help { margin:12px 0 0; }
+.lingonest-app .shared-content .model-config-feedback { padding:12px 14px; margin:16px 0; border:1px solid #dce4d5; border-radius:10px; background:#f0f3e9; font-size:13px; line-height:1.75; overflow-wrap:anywhere; }
+.lingonest-app .shared-content .model-config-feedback.success { color:#285a3f; border-color:#d7e5d3; background:#edf5e9; }
+.lingonest-app .shared-content .model-config-feedback.error { color:#8d4233; border-color:#efd6c9; background:#fff1e9; }
+.lingonest-app .shared-content .model-config-maintenance { margin-top:18px; padding-top:8px; border-top:1px solid var(--frame-line); }
+.lingonest-app .shared-content .model-config-maintenance .text-button { font-size:13px; }
+.lingonest-app .shared-content .model-config-help { margin:16px 0; border:1px solid var(--frame-line); border-radius:12px; background:#f2f3eb; font-size:13px; color:var(--frame-muted); }
+.lingonest-app .shared-content .model-config-help summary { min-height:44px; padding:12px 16px; color:#435c46; cursor:pointer; }
+.lingonest-app .shared-content .model-config-help p { margin:0 16px 14px; line-height:1.8; }
+.lingonest-app .shared-content .model-speech-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; align-items:start; }
+.lingonest-app .shared-content .model-speech-actions { grid-column:1 / -1; margin-top:0; }
 .lingonest-app .shared-content .course-audio-panel { padding:20px; margin:20px 0; border:1px solid var(--frame-line); border-radius:16px; }
 .lingonest-app .shared-content .course-audio-panel h4 { margin:0 0 12px; font-size:17px; }
 .lingonest-app.no-flex-gap .shared-content .section-heading>svg { margin-left:16px; }
@@ -185,13 +213,17 @@
   .lingonest-app .shared-content .text-button:hover:not(:disabled) { text-decoration:underline; text-underline-offset:4px; }
   .lingonest-app .frame-settings-nav a:hover { background:#edf2e5; }
 }
+@media(max-width:800px) {
+  .lingonest-app .shared-content .content-config-grid,
+  .lingonest-app .shared-content .model-speech-grid { grid-template-columns:1fr; }
+}
 @media(max-width:600px) {
   .lingonest-app .frame-settings>.frame-section,
-  .lingonest-app .frame-settings>.course-mode-settings,
-  .lingonest-app .shared-content .speech-settings,
-  .lingonest-app .shared-content .content-settings { padding:20px 16px; }
-  .lingonest-app .shared-content .content-config-grid { grid-template-columns:1fr; gap:24px; }
-  .lingonest-app .shared-content .content-config-grid form+form { padding-top:24px; border-top:1px solid var(--frame-line); }
+  .lingonest-app .frame-settings>.course-mode-settings { padding:20px 16px; }
+  .lingonest-app .shared-content .content-config-grid,
+  .lingonest-app .shared-content .model-speech-grid { gap:16px; }
+  .lingonest-app .shared-content .model-config-card { padding:20px 16px; }
+  .lingonest-app .shared-content .model-config-actions>button { padding:10px 13px; font-size:14px; }
   .lingonest-app .application-focusbar { flex-wrap:nowrap; }
   .lingonest-app .application-focusbar>.frame-button { flex-shrink:0; }
   .lingonest-app .seven-step-mode .page,

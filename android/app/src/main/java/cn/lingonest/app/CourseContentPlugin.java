@@ -21,7 +21,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.net.URL;
+import javax.net.ssl.SSLException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -44,7 +47,7 @@ public class CourseContentPlugin extends Plugin {
         recognition = new SpeechConfigStore(getContext(), "lingonest-content-recognition", "lingonest.content.recognition.v1");
         generation = new SpeechConfigStore(getContext(), "lingonest-content-generation", "lingonest.content.generation.v1");
     }
-    private SpeechConfigStore store(String kind) {
+    SpeechConfigStore store(String kind) {
         if ("recognition".equals(kind)) return recognition;
         if ("generation".equals(kind)) return generation;
         throw new IllegalArgumentException("请选择识别或课程生成模型。");
@@ -144,18 +147,30 @@ public class CourseContentPlugin extends Plugin {
             catch (Exception error) { call.reject("课程图片不存在或不可读取。", "IMAGE_READ_FAILED"); } });
     }
     @PluginMethod public void request(PluginCall call) {
+        startRequest(call, false);
+    }
+    @PluginMethod public void testConfig(PluginCall call) {
+        startRequest(call, true);
+    }
+    HttpURLConnection openConnection(URL url) throws IOException {
+        return (HttpURLConnection) url.openConnection();
+    }
+    private void startRequest(PluginCall call, boolean testing) {
         if (!requesting.compareAndSet(false, true)) { call.reject("当前内容正在处理，请稍候。", "CONTENT_BUSY"); return; }
         final int epoch = requestEpoch.get();
         io.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                String prompt = call.getString("prompt", "");
+                String kind = call.getString("kind");
+                SpeechConfig config = store(kind).load();
+                String prompt = testing ? ContentModelProbe.prompt(kind) : call.getString("prompt", "");
                 if (prompt.isEmpty() || prompt.length() > 60000) throw new IllegalArgumentException();
-                JSONArray images = call.getData().optJSONArray("images");
+                JSONArray images = testing ? null : call.getData().optJSONArray("images");
                 if (images != null && images.length() > 6) throw new IllegalArgumentException();
-                SpeechConfig config = store(call.getString("kind")).load();
                 if (config.apiKey.isEmpty() || config.model.isEmpty()) { call.reject("请先在设置中配置对应的识别或课程生成模型。", "CONTENT_CONFIG_REQUIRED"); return; }
                 JSONArray content = new JSONArray(); content.put(new JSONObject().put("type", "text").put("text", prompt));
+                boolean probeImage = testing && "recognition".equals(kind);
+                if (probeImage) content.put(new JSONObject().put("type", "image_url").put("image_url", new JSONObject().put("url", ContentModelProbe.imageUrl())));
                 if (images != null) for (int i = 0; i < images.length(); i++) {
                     JSONObject image = images.getJSONObject(i); File file = imageFile(image.getString("path"));
                     int rotation = image.optInt("rotation"); if (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) throw new IllegalArgumentException();
@@ -169,12 +184,12 @@ public class CourseContentPlugin extends Plugin {
                     } finally { bitmap.recycle(); }
                     content.put(new JSONObject().put("type", "image_url").put("image_url", new JSONObject().put("url", "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP))));
                 }
-                JSONObject body = new JSONObject().put("model", config.model).put("stream", false).put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", images != null && images.length() > 0 ? content : prompt)));
+                JSONObject body = new JSONObject().put("model", config.model).put("stream", false).put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", probeImage || images != null && images.length() > 0 ? content : prompt)));
                 if ("api.xiaomimimo.com".equalsIgnoreCase(new URL(config.baseUrl).getHost())) {
                     body.put("response_format", new JSONObject().put("type", "json_object"));
                     body.put("thinking", new JSONObject().put("type", "disabled"));
                 }
-                connection = (HttpURLConnection) new URL(config.baseUrl + "/chat/completions").openConnection();
+                connection = openConnection(new URL(config.baseUrl + "/chat/completions"));
                 activeConnection = connection;
                 if (epoch != requestEpoch.get()) { call.reject("处理已停止，草稿保留。", "CONTENT_CANCELLED"); return; }
                 connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15000); connection.setReadTimeout(90000);
@@ -182,7 +197,7 @@ public class CourseContentPlugin extends Plugin {
                 byte[] request = body.toString().getBytes(StandardCharsets.UTF_8); connection.setFixedLengthStreamingMode(request.length);
                 try (OutputStream output = connection.getOutputStream()) { output.write(request); }
                 int code = connection.getResponseCode();
-                if (code < 200 || code >= 300) { call.reject("内容服务请求失败（HTTP " + code + "），请检查模型、额度或服务配置后重试。", "CONTENT_REQUEST_FAILED"); return; }
+                if (code < 200 || code >= 300) { call.reject(ContentModelProbe.httpFailure(code), "CONTENT_REQUEST_FAILED"); return; }
                 byte[] response;
                 try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                     byte[] buffer = new byte[8192]; int count, total = 0;
@@ -190,12 +205,26 @@ public class CourseContentPlugin extends Plugin {
                     response = output.toByteArray();
                 }
                 JSONObject message = new JSONObject(new String(response, StandardCharsets.UTF_8)).getJSONArray("choices").getJSONObject(0).getJSONObject("message");
-                String result = message.getString("content"); if (result.length() > 200000) throw new IOException();
+                String result = message.getString("content");
+                if (result.trim().isEmpty() || result.length() > 200000) throw new ContentModelProbe.Failure("模型返回的内容为空或过长，请检查模型是否支持文本输出。");
                 if (epoch != requestEpoch.get()) { call.reject("处理已停止，草稿保留。", "CONTENT_CANCELLED"); return; }
-                call.resolve(new JSObject().put("text", result));
-            } catch (Exception | OutOfMemoryError error) { call.reject("识别或课程生成未完成，请检查网络与模型配置后重试；已保存的草稿保留。", "CONTENT_REQUEST_FAILED"); }
+                if (testing) { ContentModelProbe.validate(kind, result); call.resolve(); }
+                else call.resolve(new JSObject().put("text", result));
+            } catch (Exception | OutOfMemoryError error) {
+                String reason;
+                if (epoch != requestEpoch.get()) { call.reject("处理已停止，草稿保留。", "CONTENT_CANCELLED"); return; }
+                if (error instanceof SocketTimeoutException) reason = "模型请求超时，请检查网络或稍后重试。";
+                else if (error instanceof UnknownHostException) reason = "无法找到模型服务，请检查服务地址和网络连接。";
+                else if (error instanceof SSLException) reason = "无法建立安全连接，请检查服务的 HTTPS 证书或网络。";
+                else if (error instanceof org.json.JSONException) reason = "模型服务返回格式不兼容，请使用兼容 Chat Completions 且支持文本输出的模型。";
+                else if (error instanceof IllegalArgumentException) reason = "请求参数无效，请检查模型配置与输入内容。";
+                else reason = "识别或课程生成未完成，请检查网络与模型配置后重试；已保存的草稿保留。";
+                // Only locally authored validation messages may cross the bridge.
+                if (error instanceof ContentModelProbe.Failure) reason = error.getMessage();
+                call.reject(reason, "CONTENT_REQUEST_FAILED");
+            }
             finally { if (connection != null) connection.disconnect(); activeConnection = null; requesting.set(false); }
         });
     }
-    @Override protected void handleOnDestroy() { HttpURLConnection connection = activeConnection; if (connection != null) connection.disconnect(); io.shutdown(); }
+    @Override protected void handleOnDestroy() { requestEpoch.incrementAndGet(); HttpURLConnection connection = activeConnection; if (connection != null) connection.disconnect(); io.shutdown(); }
 }
