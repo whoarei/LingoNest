@@ -10,7 +10,9 @@ async function fixture(page: Page, options: Record<string, boolean> = {}, mode =
   await page.goto("/");
 }
 async function openUpdates(page: Page) {
-  await page.locator(".frame-app-menu summary").click();
+  const menu = page.locator(".frame-app-menu summary");
+  await expect(menu).toHaveAttribute("aria-disabled", "false");
+  await menu.click();
   await page.locator(".frame-app-menu").getByRole("button", { name: "应用更新", exact: true }).click();
   await expect(page.getByRole("heading", { name: "应用更新", exact: true })).toBeVisible();
 }
@@ -20,7 +22,7 @@ const counts = (page: Page) => page.evaluate(() => {
 });
 
 test("native back cannot resume learning while an installer launch is pending", async ({ page }) => {
-  await fixture(page, { holdInstall: true, granted: true }); await openUpdates(page);
+  await fixture(page, { holdInstall: true }); await openUpdates(page);
   await expect(page.getByRole("button", { name: "下载更新", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "下载更新", exact: true }).click();
   await page.getByRole("button", { name: "安装更新", exact: true }).click();
@@ -48,7 +50,7 @@ test("an update detour restores the editable material and its saved content", as
   await expect(page.getByText("教材已保存。", { exact: true })).toBeVisible();
 });
 
-test("students can update without entering parent settings, and permission never installs automatically", async ({ page }) => {
+test("students can launch the installer without a persistent grant and manage source settings separately", async ({ page }) => {
   await fixture(page);
   await expect(page.getByLabel("新版本提示")).toBeVisible();
   expect(await counts(page)).toEqual({ checks: 1, downloads: 0, installs: 0, settings: 0 });
@@ -60,7 +62,11 @@ test("students can update without entering parent settings, and permission never
   await expect(page.getByRole("button", { name: "安装更新", exact: true })).toBeEnabled();
   expect((await counts(page)).installs).toBe(0);
   await page.getByRole("button", { name: "安装更新", exact: true }).click();
-  await page.getByRole("button", { name: "允许安装此应用的更新", exact: true }).click();
+  await expect(page.getByText("系统安装界面已打开，请按系统提示完成安装。", { exact: true })).toBeVisible();
+  expect(await counts(page)).toEqual({ checks: 1, downloads: 1, installs: 1, settings: 0 });
+  await expect(page.getByRole("button", { name: "允许安装此应用的更新", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/若系统询问本次安装并显示/)).toBeVisible();
+  await page.getByRole("button", { name: "管理安装来源权限", exact: true }).click();
   expect(await counts(page)).toEqual({ checks: 1, downloads: 1, installs: 1, settings: 1 });
   await page.getByRole("button", { name: "安装更新", exact: true }).click();
   await expect(page.getByText("系统安装界面已打开，请按系统提示完成安装。", { exact: true })).toBeVisible();
@@ -71,6 +77,20 @@ test("students can update without entering parent settings, and permission never
   await parentSpace(page); await navigate(page, "设置"); await openUpdates(page);
   await page.getByRole("button", { name: "返回原页面", exact: true }).click();
   await expect(page.getByRole("heading", { name: "小窝设置", exact: true })).toBeVisible();
+});
+
+test("an installer launch failure permits retry without opening source settings or downloading again", async ({ page }) => {
+  await fixture(page, { failInstall: true }); await openUpdates(page);
+  await page.getByRole("button", { name: "下载更新", exact: true }).click();
+  await page.getByRole("button", { name: "安装更新", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("无法打开系统安装界面");
+  await expect(page.getByRole("button", { name: "安装更新", exact: true })).toBeEnabled();
+  expect(await counts(page)).toEqual({ checks: 1, downloads: 1, installs: 1, settings: 0 });
+  await page.evaluate(() => { (window as any).__updateState.failInstall = false; });
+  await page.getByRole("button", { name: "安装更新", exact: true }).click();
+  await expect(page.getByText("系统安装界面已打开，请按系统提示完成安装。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await counts(page)).toEqual({ checks: 1, downloads: 1, installs: 2, settings: 0 });
 });
 
 test("a delayed startup check does not block learning or interrupt a focused lesson", async ({ page }) => {

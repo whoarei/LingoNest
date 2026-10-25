@@ -13,7 +13,7 @@ function fixture() {
   const remove = vi.fn(async () => {});
   const api = { getInfo: vi.fn(async (): Promise<UpdateInfo> => ({ versionName: "0.1.16", versionCode: 17, sdkVersion: 29, supported: true, manifest })),
     check: vi.fn(async () => ({ manifest })), download: vi.fn(async () => {}), cancelDownload: vi.fn(async () => {}),
-    install: vi.fn(async () => ({ permissionRequired: false })), openInstallSettings: vi.fn(async () => {}),
+    install: vi.fn(async () => {}), openInstallSettings: vi.fn(async () => {}),
     addListener: vi.fn(async (_name: string, listener: (event: UpdateProgress) => void) => { progress = listener; return { remove }; }) } satisfies AppUpdateAPI;
   const create = (enabled = true) => createAppUpdate({ api, enabled, storage, now: () => time });
   return { api, create, remove, storage, values, advance: (ms: number) => { time += ms; }, progress: (received: number) => progress?.({ versionCode: 18, received, total: manifest.size }) };
@@ -55,14 +55,29 @@ describe("application updates", () => {
     expect(update.error.value).toBe("进度保存失败"); expect(f.api.install).not.toHaveBeenCalled();
     expect(update.downloaded.value).toBe(true);
   });
-  it("requires a separate install click after granting permission", async () => {
+  it("launches the installer only on explicit attempts without requiring source settings", async () => {
     const f = fixture(), update = f.create(); await update.start(); await update.download();
-    f.api.install.mockResolvedValue({ permissionRequired: true });
     const save = vi.fn(async () => {}); await update.install(save);
-    expect(save).toHaveBeenCalledOnce(); expect(update.permissionRequired.value).toBe(true);
+    expect(save).toHaveBeenCalledOnce(); expect(f.api.install).toHaveBeenCalledWith({ versionCode: 18 });
+    expect(f.api.openInstallSettings).not.toHaveBeenCalled();
+    expect(update.message.value).toBe("系统安装界面已打开，请按系统提示完成安装。");
+    // Managing an old grant is optional and never resumes installation automatically.
     await update.openInstallSettings(); expect(f.api.install).toHaveBeenCalledTimes(1);
-    f.api.install.mockResolvedValue({ permissionRequired: false }); await update.install(save);
+    expect(f.api.openInstallSettings).toHaveBeenCalledOnce();
+    await update.install(save);
     expect(f.api.install).toHaveBeenCalledTimes(2); expect(update.message.value).toContain("系统安装界面已打开");
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a verified download available after installer launch failure and permits explicit retry", async () => {
+    const f = fixture(), update = f.create(); await update.start(); await update.download();
+    f.api.install.mockRejectedValueOnce(new Error("无法打开系统安装界面"));
+    const save = vi.fn(async () => {}); await update.install(save);
+    expect(update.error.value).toBe("无法打开系统安装界面"); expect(update.message.value).toBe("");
+    expect(update.downloaded.value).toBe(true); expect(update.busy.value).toBe(false);
+    expect(f.api.openInstallSettings).not.toHaveBeenCalled();
+    await update.install(save);
+    expect(update.error.value).toBe(""); expect(f.api.download).toHaveBeenCalledOnce();
+    expect(f.api.install).toHaveBeenCalledTimes(2); expect(save).toHaveBeenCalledTimes(2);
   });
   it("keeps an active download busy until cancellation completes and permits retry", async () => {
     const f = fixture(), update = f.create(); await update.start();

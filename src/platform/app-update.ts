@@ -18,7 +18,7 @@ export function createAppUpdate(options: {
   const now = options.now ?? Date.now;
   const info = ref<UpdateInfo | null>(null), latest = ref<UpdateManifest | null>(null);
   const checking = ref(false), downloading = ref(false), installing = ref(false), downloaded = ref(false);
-  const received = ref(0), message = ref(""), error = ref(""), permissionRequired = ref(false);
+  const received = ref(0), message = ref(""), error = ref("");
   let disposed = false, started = false;
   let subscription: { remove(): Promise<void> } | undefined;
   let infoRequest: Promise<void> | undefined;
@@ -59,7 +59,7 @@ export function createAppUpdate(options: {
       const result = await options.api.check();
       if (disposed) return;
       if (latest.value?.versionCode !== result.manifest.versionCode || latest.value?.sha256 !== result.manifest.sha256) {
-        downloaded.value = false; received.value = 0; permissionRequired.value = false;
+        downloaded.value = false; received.value = 0;
       }
       latest.value = result.manifest;
       schedule.value.checkedAt = now(); schedule.value.attemptedAt = 0;
@@ -96,7 +96,7 @@ export function createAppUpdate(options: {
     if (disposed || busy.value || !compatible.value) return;
     const code = latest.value!.versionCode;
     downloading.value = true; downloaded.value = false; received.value = 0;
-    permissionRequired.value = false; error.value = ""; message.value = "";
+    error.value = ""; message.value = "";
     try {
       await options.api.download({ versionCode: code });
       if (!disposed) { downloaded.value = true; received.value = latest.value!.size; message.value = "安装包已校验，可点击安装更新。"; }
@@ -112,9 +112,8 @@ export function createAppUpdate(options: {
     try {
       await prepare();
       if (disposed) return;
-      const result = await options.api.install({ versionCode: latest.value!.versionCode });
-      permissionRequired.value = result.permissionRequired;
-      message.value = result.permissionRequired ? "需要允许此应用安装更新。授权后请返回，再次点击安装更新。" : "系统安装界面已打开，请按系统提示完成安装。";
+      await options.api.install({ versionCode: latest.value!.versionCode });
+      if (!disposed) message.value = "系统安装界面已打开，请按系统提示完成安装。";
     } catch (value) { if (!disposed) error.value = failure(value); }
     finally { installing.value = false; }
   }
@@ -128,5 +127,5 @@ export function createAppUpdate(options: {
     if (downloading.value) void options.api.cancelDownload().catch(() => {});
   }
   return { info, latest, currentVersion, available, compatible, notify, unsupportedReason, busy, checking, downloading,
-    installing, downloaded, received, message, error, permissionRequired, start, check, dismiss, download, cancel, install, openInstallSettings, dispose };
+    installing, downloaded, received, message, error, start, check, dismiss, download, cancel, install, openInstallSettings, dispose };
 }

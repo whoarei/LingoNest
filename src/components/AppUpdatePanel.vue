@@ -27,12 +27,16 @@ const size = (bytes: number) => (bytes / 1024 / 1024).toFixed(1) + " MB";
         <button v-if="!updates.downloaded" class="frame-button" :disabled="updates.busy || !updates.compatible" @click="updates.download()">下载更新</button>
         <button v-else class="frame-button" :disabled="updates.busy || !updates.compatible" @click="updates.install(prepareInstall)">{{ updates.installing ? '正在准备安装…' : '安装更新' }}</button>
         <button v-if="updates.downloaded" class="frame-button secondary" :disabled="updates.busy" @click="updates.download()">重新下载</button>
-        <button v-if="updates.permissionRequired" class="frame-button secondary" :disabled="updates.busy" @click="updates.openInstallSettings()">允许安装此应用的更新</button>
       </div>
     </div>
     <p v-if="updates.message" role="status">{{ updates.message }}</p>
     <p v-if="updates.error" class="frame-error" role="alert">{{ updates.error }}</p>
     <p class="frame-caption">下载由你确认，安装由 Android 系统确认。安装前会保存当前进度。</p>
+    <p class="frame-caption">若系统询问本次安装并显示“记住我的选择”，请保持未勾选。是否支持每次询问由手机系统决定。</p>
+    <template v-if="updates.info?.supported && updates.info.sdkVersion >= 26">
+      <p class="frame-caption">之前开启的长期安装来源权限需在系统设置中手动关闭。</p>
+      <button class="frame-button secondary" :disabled="updates.busy" @click="updates.openInstallSettings()">管理安装来源权限</button>
+    </template>
     <a :href="releasePage" target="_blank" rel="noopener noreferrer">前往 GitHub 发布页</a>
   </section>
 </template>

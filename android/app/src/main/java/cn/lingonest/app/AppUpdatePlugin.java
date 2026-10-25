@@ -249,8 +249,8 @@ public class AppUpdatePlugin extends Plugin {
         execute(call, "无法打开系统安装界面，请重试或前往 GitHub 下载。", () -> {
             AppUpdatePolicy.Manifest manifest = candidate(call);
             File apk = new File(root(), "update.apk"); verify(apk, manifest);
-            if (Build.VERSION.SDK_INT >= 26 && !getContext().getPackageManager().canRequestPackageInstalls())
-                return new JSObject().put("permissionRequired", true);
+            // Let the system installer handle source consent, including OEM one-time choices.
+            // A false canRequestPackageInstalls() must not force a persistent settings grant.
             Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
             Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -263,7 +263,7 @@ public class AppUpdatePlugin extends Plugin {
             getActivity().runOnUiThread(launch);
             try { launch.get(10, java.util.concurrent.TimeUnit.SECONDS); }
             catch (Exception failure) { launch.cancel(false); throw failure; }
-            return new JSObject().put("permissionRequired", false);
+            return new JSObject();
         });
     }
     @PluginMethod public void openInstallSettings(PluginCall call) {
@@ -272,7 +272,7 @@ public class AppUpdatePlugin extends Plugin {
             if (Build.VERSION.SDK_INT >= 26) getActivity().startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:" + getContext().getPackageName())));
             call.resolve();
-        } catch (Exception failure) { call.reject("无法打开安装授权设置，请在系统设置中允许此应用安装更新。", "UPDATE_SETTINGS_FAILED"); }
+        } catch (Exception failure) { call.reject("无法打开安装来源设置，请在系统设置中管理此应用的安装来源权限。", "UPDATE_SETTINGS_FAILED"); }
     }
     @Override protected void handleOnDestroy() {
         destroyed = true; cancelled.set(true);

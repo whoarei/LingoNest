@@ -25,7 +25,7 @@ export interface AppUpdateAPI {
   check(): Promise<{ manifest: UpdateManifest }>;
   download(options: { versionCode: number }): Promise<void>;
   cancelDownload(): Promise<void>;
-  install(options: { versionCode: number }): Promise<{ permissionRequired: boolean }>;
+  install(options: { versionCode: number }): Promise<void>;
   openInstallSettings(): Promise<void>;
   addListener(name: "progress", callback: (event: UpdateProgress) => void): Promise<PluginListenerHandle>;
 }

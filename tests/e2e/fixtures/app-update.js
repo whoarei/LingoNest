@@ -25,7 +25,7 @@ export const appUpdateAPI = {
   install: async () => {
     state.installs++;
     if (state.holdInstall) await new Promise(resolve => { window.__finishUpdateInstall = resolve; });
-    return { permissionRequired: !state.granted };
+    if (state.failInstall) throw new Error('无法打开系统安装界面');
   },
-  openInstallSettings: async () => { state.settings++; state.granted = true; },
+  openInstallSettings: async () => { state.settings++; },
 };
